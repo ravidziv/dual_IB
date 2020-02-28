@@ -48,7 +48,6 @@ def create_dataset(num_train, num_test, x_dim, layer_widths, nonlin, lambd_facto
     py_x_samp, py_xt_sampe = py_x_normalize[:,:num_train], py_x_normalize[:,num_train:]
     probs = np.sum(py_x_samp.numpy(), axis=1)
     probs = probs / np.sum(probs)
-    print (probs)
     py = tfp.distributions.Categorical(probs=onp.array(probs))
     px = tfp.distributions.Categorical(probs=onp.ones((num_test))/num_test)
     train_ds = tf.data.Dataset.from_tensor_slices((x_samp, tf.transpose(py_x_samp)))

@@ -1,48 +1,71 @@
 import numpy as np
-from scipy.special import logsumexp, softmax
+import tensorflow as tf
 
-def entropy(ps):
-    return -np.sum([p*np.log(p) for p in ps if not np.isclose(p,0)])
+def log_summary(summary_writer, optimizer, epoch, matrices, logger):
+    message = 'Epoch {}, '.format(epoch+1)
+    with summary_writer.as_default():
+        for matric_name in matrices:
+            metric_list = matrices[matric_name]
+            if type(metric_list) !=list:
+                metric_list = [metric_list]
+            for i in range(len(metric_list)):
+                metric = metric_list[i]
+                tf.summary.scalar(metric.name, metric.result(), step = optimizer.iterations)
+                message +='{} {:0.3f}, '.format(metric.name, metric.result())
+                metric.reset_states()
+        logger.info(message)
 
-def calc_At(px_t, A):
-  return np.dot(A, px_t)
+def load_matrices(model):
+    """Return dict of matrices for the loss and all the information measures."""
+    train_loss = tf.keras.metrics.Mean(name='Train loss')
+    test_loss = tf.keras.metrics.Mean(name='Test loss')
+    test_ixt_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})".format(i)) for i in range(len(model.layers))]
+    test_ity_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})".format(i)) for i in range(len(model.layers))]
+    test_ixt_clusterd_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_c_nce".format(i)) for i in
+                               range(len(model.layers))]
+    test_ity_clusterd_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_c_nce".format(i)) for i in
+                               range(len(model.layers))]
+    test_ixt_dual_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_dual".format(i)) for i in
+                           range(len(model.layers))]
+    test_ity_dual_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_dual".format(i)) for i in
+                           range(len(model.layers))]
+    test_ity_mine_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_mine".format(i)) for i in
+                           range(len(model.layers))]
+    test_ixt_mine_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_mine".format(i)) for i in
+                           range(len(model.layers))]
+    test_ity_clusterd_mine_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_c_mine".format(i)) for i in
+                           range(len(model.layers))]
+    test_ixt_mine_clusterd_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_c_mine".format(i)) for i in
+                           range(len(model.layers))]
 
-def calc_lambdt(py_t, lambd):
-  return np.dot(lambd, py_t)
+    matrices = {}
+    matrices['train_loss'] = train_loss
+    matrices['test_loss'] = test_loss
+    matrices['test_ixt_dual_bound'] = test_ixt_dual_bound
+    matrices['test_ity_dual_bound'] = test_ity_dual_bound
+    matrices['test_ity_bound'] = test_ity_bound
+    matrices['test_ity_clusterd_bound_nce'] = test_ity_clusterd_bound
+    matrices['test_ixt_bound'] = test_ixt_bound
+    matrices['test_ixt_clusterd_bound_nce'] = test_ixt_clusterd_bound
+    matrices['test_ity_mine_bound'] = test_ity_mine_bound
+    matrices['test_ixt_mine_bound'] = test_ixt_mine_bound
+    matrices['test_ity_clusterd_bound_mine'] = test_ity_clusterd_mine_bound
+    matrices['test_ixt_clusterd_bound_mine'] = test_ixt_mine_clusterd_bound
+    return matrices
 
-def calc_py_t(At, lambd):
-  '''
-  returns: p(y|t) and \log(Z)
-  '''
-  log_py_t = -np.dot(lambd.T, At)
-  lambdt0 = logsumexp(log_py_t, axis=0)
-  return softmax(log_py_t, axis=0), lambdt0
+def store_data(matrices, loss_value, test_loss_val, ixts, itys, information_MINE, information_clustered, information_dual_ib):
+    [matrices['test_ixt_dual_bound'][i](information_dual_ib[i][0]) for i in range(len(information_dual_ib))]
+    [matrices['test_ity_dual_bound'][i](information_dual_ib[i][1]) for i in range(len(information_dual_ib))]
 
-def calc_d_dualib(A, At, lambd, lambd0, lambdt, lambdt0):
-  return lambd0-lambdt0+np.dot(lambdt.T, (A-At))
+    [matrices['test_ixt_mine_bound'][i](information_MINE[i][0]) for i in range(len(information_MINE))]
+    [matrices['test_ity_mine_bound'][i](information_MINE[i][1]) for i in range(len(information_MINE))]
 
-def calc_pt_x(pt, A, At, lambd, lambdt, lambdt0, beta):
-    Am = A[:, :, None]-At[:, None, :]
-    res = np.einsum('kij,kj->ij',Am, lambdt)
-    log_pt_x = beta*(lambdt0-res) + np.log(pt)
-    logZt_x = logsumexp(log_pt_x, axis=0)
-    return softmax(log_pt_x, axis=0), logZt_x
+    [matrices['test_ixt_bound'][i](ixts[i]) for i in range(len(ixts))]
+    [matrices['test_ity_bound'][i](itys[i]) for i in range(len(itys))]
 
-# info calc with px_t:
-
-def calc_IYT_p(pt, px_t, A, lambd, HY):
-  At = calc_At(px_t, A)
-  py_t, lambdt0 = calc_py_t(At, lambd)
-  lambdt = calc_lambdt(py_t, lambd)
-  At_lambd  =np.einsum('ij,ij->j',At, lambdt)
-  HY_T = np.dot(pt, At_lambd+lambdt0)
-  return HY - HY_T
-
-def calc_IXT_p(pt, px_t, A, lambd, beta, HX):
-
-  At = calc_At(px_t, A)
-  py_t, lambdt0 = calc_py_t(At, lambd)
-  lambdt = calc_lambdt(py_t, lambd)
-  _, logZt_x = calc_pt_x(pt, A, At, lambd, lambdt, lambdt0, beta)
-  HX_T = -beta*np.dot(pt, lambdt0) + np.mean(logZt_x)
-  return HX - HX_T
+    [matrices['test_ixt_clusterd_bound_nce'][i](information_clustered[0][i][0]) for i in range(len(information_clustered[0]))]
+    [matrices['test_ity_clusterd_bound_nce'][i](information_clustered[1][i][0]) for i in range(len(information_clustered[1]))]
+    [matrices['test_ixt_clusterd_bound_mine'][i](information_clustered[0][i][1]) for i in range(len(information_clustered[0]))]
+    [matrices['test_ity_clusterd_bound_mine'][i](information_clustered[1][i][1]) for i in range(len(information_clustered[1]))]
+    matrices['train_loss'](loss_value)
+    matrices['test_loss'](test_loss_val)

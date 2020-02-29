@@ -6,6 +6,7 @@ from MINE import MINE
 from sklearn import mixture
 from  tensorflow_probability import distributions as tfd
 
+
 def GMM_entropy(dist, var, d, bound='upper', weights=None):
     # computes bounds for the entropy of a homoscedastic Gaussian mixture model [Kolchinsky, 2017]
     # dist: a matrix of pairwise distances
@@ -44,7 +45,7 @@ def get_information_MINE(xs, ts, batch_size=50, epochs=25, num_of_epochs_average
     return tf.reduce_mean(-fit_loss[-num_of_epochs_average:])
 
 
-def get_ixt(inputs, noisevar=1e-1):
+def get_ixt(inputs, noisevar=None):
     """Get I(X;T) assumeing that p(t|x) is a gsussian with noise variance (nonlinear IB)."""
     inputs = inputs.numpy().astype(np.float64)
     input_dim = inputs.shape[1]
@@ -72,7 +73,7 @@ def nce_estimator(num_of_samples, qxt):
     return ixt_array
 
 
-def mine_estimator(qxt, weights, means, num_of_samples=10):
+def mine_estimator(qxt, weights, means, num_of_samples=None):
     pts = tfd.Categorical(probs=weights)
     t = pts.sample(num_of_samples)
     ts = tf.stack([means[t[i]] for i in range(len(t))])
@@ -87,33 +88,9 @@ def get_ixt_clustered(data, num_of_clusters, num_of_samples):
     clf.fit(data)
     qxt = tfd.MultivariateNormalTriL(loc=clf.means_, scale_tril=tf.linalg.cholesky(clf.covariances_))
     ixt_nce = nce_estimator(num_of_samples, qxt)
-    ixt_mine = mine_estimator(qxt, clf.weights_, clf.means_)
+    ixt_mine = mine_estimator(qxt, clf.weights_, clf.means_, num_of_samples=num_of_samples)
     return ixt_nce, ixt_mine
 
-
-def get_information_dual(data, num_of_clusters, A, lambd, x_entopy, y_entopy):
-    """Calculate ixt after clustring to mixture of gaussian"""
-    clf = mixture.GaussianMixture(n_components=num_of_clusters, covariance_type='tied')
-    clf.fit(data)
-    qxt = tfd.MultivariateNormalTriL(loc=clf.means_, scale_tril=tf.linalg.cholesky(clf.covariances_))
-    pt = clf.weights_
-    beta = 1 / (np.trace(clf.covariances_))
-
-    px_t = []
-    for t_index in range(num_of_clusters):
-        px_t.append(qxt[t_index].prob(tf.cast(data, tf.float64)))
-    px_t = tf.transpose(tf.stack(px_t))
-    ixt = calc_IXT_p(pt, px_t.numpy(), A.numpy().T, lambd.numpy().T, beta, x_entopy)
-    ity = calc_IYT_p(pt, px_t.numpy(), A.numpy().T, lambd.numpy().T, y_entopy)
-    return ixt, ity
-
-
-def get_information_dual_all_layers(model, num_of_clusters=[10, 10, 10], xs=None,
-                                    A=None, lambd=None, px=None, py=None):
-    itys = [get_information_dual(tf.keras.Model(model.inputs, model.layers[layer_indec].output)(xs),
-                                 num_of_clusters=num_of_clusters[layer_indec], A=A, lambd=lambd, x_entopy=px.entropy(),
-                                 y_entopy=py.entropy()) for layer_indec in range(len(model.layers))]
-    return itys
 
 
 def linear_estimator(py, log_py_ts):
@@ -130,7 +107,7 @@ def ity_mine_estimator(qyt, weights, means, num_of_samples):
     return ixt
 
 
-def get_iyt_clustered(data, num_of_clusters, py_x, py, num_of_samples=20):
+def get_iyt_clustered(data, num_of_clusters, py_x, py, num_of_samples):
     """Calculate ixt after clustring to mixture of gaussian"""
     clf = mixture.GaussianMixture(n_components=num_of_clusters, covariance_type='tied')
     clf.fit(data)
@@ -148,19 +125,19 @@ def get_iyt_clustered(data, num_of_clusters, py_x, py, num_of_samples=20):
     return ity_linear, ity_mine
 
 
-def get_information_all_layers_clusterd(model, x_test, num_of_clusters=[10, 10, 10], num_of_samples=10, xs=None,
+def get_information_all_layers_clusterd(model, x_test, num_of_clusters=None, num_of_samples=None, xs=None,
                                         py_x=None, py=None):
     """The infomration I(X;T) and I(T;Y) after you clustered T to mixture of gaussians"""
     ixts = [get_ixt_clustered(tf.keras.Model(model.inputs, model.layers[layer_indec].output)(x_test),
                               num_of_clusters=num_of_clusters[layer_indec], num_of_samples=num_of_samples)
             for layer_indec in range(len(model.layers))]
     itys = [get_iyt_clustered(tf.keras.Model(model.inputs, model.layers[layer_indec].output)(xs),
-                              num_of_clusters=num_of_clusters[layer_indec], py_x=py_x, py=py)
+                              num_of_clusters=num_of_clusters[layer_indec], py_x=py_x, py=py, num_of_samples=num_of_samples)
             for layer_indec in range(len(model.layers))]
     return ixts, itys
 
 
-def get_ixt_all_layers(model, x_test, noisevar=1e-3):
+def get_ixt_all_layers(model, x_test, noisevar):
     # Get I(X;T) for each layer
     ixts = [get_ixt(tf.keras.Model(model.inputs, layer.output)(x_test), noisevar=noisevar) for layer in model.layers]
     return ixts
@@ -171,46 +148,3 @@ def get_information_all_layers_MINE(model, x_test, y_test):
     ixts = [get_information_MINE(x_test, tf.keras.Model(model.inputs, layer.output)(x_test)) for layer in model.layers]
     iyts = [get_information_MINE(y_test, tf.keras.Model(model.inputs, layer.output)(x_test)) for layer in model.layers]
     return ixts, iyts
-
-
-def calc_At(px_t, A):
-  return np.dot(A, px_t)
-
-def calc_lambdt(py_t, lambd):
-  return np.dot(lambd, py_t)
-
-def calc_py_t(At, lambd):
-  '''
-  returns: p(y|t) and \log(Z)
-  '''
-  log_py_t = -np.dot(lambd.T, At)
-  lambdt0 = logsumexp(log_py_t, axis=0)
-  return softmax(log_py_t, axis=0), lambdt0
-
-def calc_d_dualib(A, At, lambd, lambd0, lambdt, lambdt0):
-  return lambd0-lambdt0+np.dot(lambdt.T, (A-At))
-
-def calc_pt_x(pt, A, At, lambd, lambdt, lambdt0, beta):
-    Am = A[:, :, None]-At[:, None, :]
-    res = np.einsum('kij,kj->ij',Am, lambdt)
-    log_pt_x = beta*(lambdt0-res) + np.log(pt)
-    logZt_x = logsumexp(log_pt_x, axis=0)
-    return softmax(log_pt_x, axis=0), logZt_x
-
-# info calc with px_t:
-
-def calc_IYT_p(pt, px_t, A, lambd, HY):
-  At = calc_At(px_t, A)
-  py_t, lambdt0 = calc_py_t(At, lambd)
-  lambdt = calc_lambdt(py_t, lambd)
-  At_lambd  =np.einsum('ij,ij->j',At, lambdt)
-  HY_T = np.dot(pt, At_lambd+lambdt0)
-  return HY - HY_T
-
-def calc_IXT_p(pt, px_t, A, lambd, beta, HX):
-  At = calc_At(px_t, A)
-  py_t, lambdt0 = calc_py_t(At, lambd)
-  lambdt = calc_lambdt(py_t, lambd)
-  _, logZt_x = calc_pt_x(pt, A, At, lambd, lambdt, lambdt0, beta)
-  HX_T = -beta*np.dot(pt, lambdt0) + np.mean(logZt_x)
-  return HX - HX_T

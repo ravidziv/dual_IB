@@ -14,8 +14,8 @@ from datasets import create_dataset
 from utils import store_data, log_summary, load_matrices
 import shutil
 import os
-from information_estimators import get_ixt_all_layers, get_information_all_layers_MINE, get_information_dual_all_layers, get_information_all_layers_clusterd
-
+from information_estimators import get_ixt_all_layers, get_information_all_layers_MINE, get_information_all_layers_clusterd
+from dual_ib import get_information_dual_all_layers, beta_func
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('summary_path','logs/', '')
@@ -38,6 +38,7 @@ flags.DEFINE_integer('num_epochs', 100, '')
 flags.DEFINE_integer('batch_per_epoch', 10, '')
 flags.DEFINE_integer('num_iterations_to_print', 5, '')
 flags.DEFINE_integer('num_of_epochs_inf_labels', 5, '')
+flags.DEFINE_integer('num_of_samples', 10, '')
 flags.DEFINE_float('noisevar', 1e-1, '')
 flags.DEFINE_float('lr_labels', 5e-2, '')
 flags.DEFINE_multi_integer('layer_widths', [10, 5], '')
@@ -90,7 +91,7 @@ def get_iyt(batch, entropy_y, num_of_epochs, lr=1e-3):
 
 def train(train_ds, test_ds, lr, beta, num_epochs, batch_per_epoch,
           num_iterations_to_print, noisevar, py, py_x, xs, px, A, lambd,
-          lr_labels, num_of_clusters, num_of_epochs_inf_labels):
+          lr_labels, num_of_clusters, num_of_epochs_inf_labels, beta_func, num_of_samples):
     """Train the model and measure the information."""
     model = bulid_model(FLAGS.input_shape, FLAGS.y_dim)
     optimizer = tf.keras.optimizers.SGD(lr, beta)
@@ -116,13 +117,12 @@ def train(train_ds, test_ds, lr, beta, num_epochs, batch_per_epoch,
                     information_MINE = get_information_all_layers_MINE(model=model, x_test=batch_test[0], y_test=batch_test[1])
 
                     information_clustered = get_information_all_layers_clusterd(
-                        model=model, x_test=batch_test[0], num_of_clusters=num_of_clusters, py_x=py_x, xs=xs, py=py)
+                        model=model, x_test=batch_test[0], num_of_clusters=num_of_clusters, py_x=py_x, xs=xs, py=py, num_of_samples=num_of_samples)
                     information_dual_ib = get_information_dual_all_layers(model=model, num_of_clusters=num_of_clusters, xs=xs,
-                                                    A=A, lambd=lambd, px=px, py=py)
+                                                    A=A, lambd=lambd, px=px, py=py, beta_func=beta_func)
                     store_data(matrices, loss_value, test_loss_val, ixts, itys, information_MINE, information_clustered, information_dual_ib)
                 log_summary(summary_writer, optimizer, epoch, matrices, logger)
             ind += 1
-
 
 def main(argv):
     #Delete previous runs
@@ -136,7 +136,8 @@ def main(argv):
           FLAGS.batch_per_epoch,
           FLAGS.num_iterations_to_print, FLAGS.noisevar, py=py, py_x=py_x, xs=xs, px=px, A=A, lambd=lambd,
           lr_labels=FLAGS.lr_labels, num_of_clusters=FLAGS.num_of_clusters,
-          num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels)
+          num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels, beta_func=beta_func,
+          num_of_samples=FLAGS.num_of_samples)
     logger.info('Done')
 
 

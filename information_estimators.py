@@ -5,8 +5,8 @@ from sklearn.metrics import pairwise_distances
 from MINE import MINE
 from sklearn import mixture
 from  tensorflow_probability import distributions as tfd
-
-
+from information_utils import calc_information_from_mat, extract_probs
+from functools import partial
 def GMM_entropy(dist, var, d, bound='upper', weights=None):
     # computes bounds for the entropy of a homoscedastic Gaussian mixture model [Kolchinsky, 2017]
     # dist: a matrix of pairwise distances
@@ -148,3 +148,35 @@ def get_information_all_layers_MINE(model, x_test, y_test):
     ixts = [get_information_MINE(x_test, tf.keras.Model(model.inputs, layer.output)(x_test)) for layer in model.layers]
     iyts = [get_information_MINE(y_test, tf.keras.Model(model.inputs, layer.output)(x_test)) for layer in model.layers]
     return ixts, iyts
+
+
+def get_information_bins_estimators(batch_test, model, num_of_bins=50):
+    """Calculate the information for the network for all the epochs and all the layers"""
+    x_test, labels = batch_test
+    bins = np.linspace(-1, 1, num_of_bins)
+    pxs, pys, unique_inverse_x, unique_inverse_y = extract_probs(labels.numpy(), x_test.numpy())
+    partial_func = partial(calc_information_bins, bins=bins, pys=pys, pxs = pxs, unique_inverse_x=unique_inverse_x,
+                           py_x=labels.numpy().T)
+    ts = [tf.keras.Model(model.inputs, model.layers[layer_index].output)(x_test) for layer_index in range(len(model.layers))]
+    params = [partial_func(ts[i].numpy()) for i in range(len(ts))]
+    return params
+
+
+
+
+def calc_information_bins(data, bins, pys, pxs, unique_inverse_x, py_x):
+    digitized = bins[np.digitize(np.squeeze(data.reshape(1, -1)), bins) - 1].reshape(len(data), -1)
+    b2 = np.ascontiguousarray(digitized).view(
+		np.dtype((np.void, digitized.dtype.itemsize * digitized.shape[1])))
+    unique_array, unique_inverse_t, unique_index, unique_counts = \
+		np.unique(b2, return_index=True, return_inverse=True, return_counts=True)
+    px_t = np.zeros((pxs.shape[0],unique_inverse_t.shape[0]) )
+    for t_index in range(len(unique_counts)):
+        xs_ts = unique_index == t_index
+        px_t[xs_ts,t_index] =1
+    p_ts = unique_counts / float(sum(unique_counts))
+    px_t /= np.sum(px_t, axis=0)
+    py_t = np.einsum('ij,jt->it', py_x, px_t)
+    ixt, ity =calc_information_from_mat(pxs, pys, p_ts, digitized, unique_inverse_x, py_t)
+    return ixt, ity
+

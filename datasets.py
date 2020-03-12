@@ -44,7 +44,7 @@ def create_dataset(num_train, num_test, x_dim, layer_widths, nonlin, lambd_facto
     Zy_x = tf.reduce_sum(py_x, axis=0)
     py_x_normalize = (py_x / Zy_x[None,:])
     # Divided to train/test
-    x_samp, xt_samp = x[:num_test, :], x[num_test:, :]
+    x_samp, xt_samp = x[:num_train, :], x[num_train:, :]
     py_x_samp, py_xt_sampe = py_x_normalize[:,:num_train], py_x_normalize[:,num_train:]
     probs = np.sum(py_x_samp.numpy(), axis=1)
     probs = probs / np.sum(probs)

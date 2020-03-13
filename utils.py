@@ -2,7 +2,8 @@ import numpy as np
 import tensorflow as tf
 
 def log_summary(summary_writer, optimizer, epoch, matrices, logger):
-    message = 'Epoch {}, '.format(epoch+1)
+    message = "-"*100 +"\n"
+    message += 'Epoch {}, '.format(epoch+1)
     with summary_writer.as_default():
         for matric_name in matrices:
             metric_list = matrices[matric_name]

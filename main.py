@@ -3,7 +3,14 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 import logging, os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+
 import tensorflow as tf
+gpus = tf.config.experimental.list_physical_devices('GPU')
+
+# Currently, memory growth needs to be the same across GPUs
+for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
 from absl import flags
 from absl import app
 
@@ -17,6 +24,7 @@ import os
 from information_estimators import get_ixt_all_layers, get_information_all_layers_MINE, get_information_all_layers_clusterd
 from information_estimators import  get_information_bins_estimators
 from dual_ib import get_information_dual_all_layers, beta_func
+import time
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('summary_path','logs/', '')
@@ -24,9 +32,8 @@ flags.DEFINE_string('checkpoint_path','log/', '')
 
 
 flags.DEFINE_integer('x_dim',10, '')
-flags.DEFINE_string('nonlin','Relu', '')
-flags.DEFINE_integer('num_train', 6000, '')
-flags.DEFINE_integer('num_test', 2000, '')
+flags.DEFINE_integer('num_train', 1000, '')
+flags.DEFINE_integer('num_test', 1000, '')
 flags.DEFINE_integer('input_shape', 10, '')
 flags.DEFINE_integer('y_dim', 2, '')
 
@@ -46,16 +53,20 @@ flags.DEFINE_integer('batch_size', 128, 'batch size for the main network')
 flags.DEFINE_float('noisevar', 1e-1, '')
 flags.DEFINE_float('lr_labels', 5e-2, '')
 flags.DEFINE_multi_integer('layer_widths', [10, 5], '')
-flags.DEFINE_multi_integer('num_of_clusters', [3, 3, 3], 'The widhts of the layers in the random network')
+flags.DEFINE_multi_integer('num_of_clusters', [3, 3, 3, 3], 'The width of the layers in the random network')
+flags.DEFINE_multi_integer('layers_width', [10, 10, 10], 'The width of the layers in main network')
+flags.DEFINE_string('nonlin','tanh', '')
+flags.DEFINE_string('nonlin_dataset','Relu', '')
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.FileHandler('log_file'))
 
-def bulid_model(input_shape, y_dim=2, nonlin = 'tanh'):
+def bulid_model(input_shape, y_dim=2, nonlin = 'tanh', layers_width=[]):
   model = tf.keras.Sequential()
-  model.add(tf.keras.layers.Dense(10, input_shape=(input_shape,), activation=nonlin))
-  model.add(tf.keras.layers.Dense(10, activation=nonlin))
+  model.add(tf.keras.layers.Dense(layers_width[0], input_shape=(input_shape,), activation=nonlin))
+  for i in range(1, len(layers_width)):
+    model.add(tf.keras.layers.Dense(layers_width[i], activation=nonlin))
   model.add(tf.keras.layers.Dense(y_dim))
   return model
 
@@ -90,10 +101,10 @@ def get_ity_all_layers(model, batch, entropy_y, num_of_epochs, lr=1e-3):
                     num_of_epochs=num_of_epochs, lr=lr) for layer_indec in range(len(model.layers))]
     return itys
 
-def get_iyt(batch, entropy_y, num_of_epochs, lr=1e-3):
+def get_iyt(batch, entropy_y, num_of_epochs, lr=1e-3, layers_width=[10, 10]):
     """Train network to fit logp(y|t)."""
     pred, targets = batch
-    model = bulid_model(pred.shape[1], targets.shape[-1])
+    model = bulid_model(pred.shape[1], targets.shape[-1], layers_width=layers_width)
     optimizer = tf.keras.optimizers.Adam(lr)
     loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=True)
     for i in range(num_of_epochs):
@@ -104,12 +115,11 @@ def get_iyt(batch, entropy_y, num_of_epochs, lr=1e-3):
 def train(train_ds, test_ds, lr, beta, num_epochs, batch_per_epoch,
           num_iterations_to_print, noisevar, py, py_x, xs, px, A, lambd,
           lr_labels, num_of_clusters, num_of_epochs_inf_labels, beta_func, num_of_samples,
-          num_of_bins):
+          num_of_bins, input_shape, y_dim, nonlin, layers_width):
     """Train the model and measure the information."""
-    model = bulid_model(FLAGS.input_shape, FLAGS.y_dim)
+    model = bulid_model(input_shape=input_shape, y_dim=y_dim, nonlin=nonlin, layers_width=layers_width)
     optimizer = tf.keras.optimizers.SGD(lr, beta)
     loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-
     summary_writer = tf.summary.create_file_writer(FLAGS.summary_path)
     #ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
     #manager = tf.train.CheckpointManager(ckpt, FLAGS.checkpoint_path, max_to_keep=3)
@@ -121,15 +131,32 @@ def train(train_ds, test_ds, lr, beta, num_epochs, batch_per_epoch,
             loss_value = train_step(batch, model , loss_fn, optimizer)
             if ind % num_iterations_to_print == 0:
                 for batch_test in  test_ds.take(1):
+                    t = time.time()
                     test_loss_val = test_step(model=model, batch=batch_test, loss_fn=loss_fn)
+                    print (1,t - time.time())
+                    t = time.time()
                     information_bins = get_information_bins_estimators(batch_test, model, num_of_bins=num_of_bins)
+                    print(2,t - time.time())
+                    t = time.time()
+
                     linear_information = get_linear_information(model, batch_test, py.entropy(), num_of_epochs_inf_labels, lr_labels, noisevar)
-                    information_MINE = get_information_all_layers_MINE(model=model, x_test=batch_test[0], y_test=batch_test[1])
+                    print(3,t - time.time())
+                    t = time.time()
+
+                    information_MINE = get_information_all_layers_MINE(model=model, x_test=batch_test[0], y_test=batch_test[1], batch_size = 500)
+                    print(4,t - time.time())
+                    t = time.time()
 
                     information_clustered = get_information_all_layers_clusterd(
                         model=model, x_test=batch_test[0], num_of_clusters=num_of_clusters, py_x=py_x, xs=xs, py=py, num_of_samples=num_of_samples)
+                    print(5, t - time.time())
+                    t = time.time()
+
                     information_dual_ib = get_information_dual_all_layers(model=model, num_of_clusters=num_of_clusters, xs=xs,
                                                     A=A, lambd=lambd, px=px, py=py, beta_func=beta_func)
+                    print(6, t - time.time())
+                    t = time.time()
+
                     store_data(matrices, loss_value, test_loss_val, linear_information, information_MINE, information_clustered, information_dual_ib, information_bins)
                 log_summary(summary_writer, optimizer, epoch, matrices, logger)
             ind += 1
@@ -139,7 +166,7 @@ def main(argv):
     if os.path.isdir(FLAGS.summary_path):
         shutil.rmtree(FLAGS.summary_path)
     train_ds, test_ds, py, py_x, xs, px, A, lambd= create_dataset(FLAGS.num_train, FLAGS.num_test,
-                                       FLAGS.x_dim, FLAGS.layer_widths,  FLAGS.nonlin, batch_size=FLAGS.batch_size,
+                                       FLAGS.x_dim, FLAGS.layer_widths,  FLAGS.nonlin_dataset, batch_size=FLAGS.batch_size,
                                        lambd_factor=FLAGS.lambd,
                                        alpha=FLAGS.alpha)
     train(train_ds, test_ds, FLAGS.lr, FLAGS.beta, FLAGS.num_epochs,
@@ -147,7 +174,9 @@ def main(argv):
           FLAGS.num_iterations_to_print, FLAGS.noisevar, py=py, py_x=py_x, xs=xs, px=px, A=A, lambd=lambd,
           lr_labels=FLAGS.lr_labels, num_of_clusters=FLAGS.num_of_clusters,
           num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels, beta_func=beta_func,
-          num_of_samples=FLAGS.num_of_samples, num_of_bins=FLAGS.num_of_bins)
+          num_of_samples=FLAGS.num_of_samples, num_of_bins=FLAGS.num_of_bins,
+          input_shape=FLAGS.input_shape, y_dim=FLAGS.y_dim , nonlin=FLAGS.nonlin, layers_width= FLAGS.layers_width
+          )
     logger.info('Done')
 
 

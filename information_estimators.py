@@ -82,13 +82,10 @@ def mine_estimator(qxt, weights, means, num_of_samples=None):
     return ixt
 
 
-def get_ixt_clustered(data, num_of_clusters, num_of_samples):
+def get_ixt_clustered(qxt, num_of_samples, weights, means):
     """Calculate ixt after clustring to mixture of gaussian"""
-    clf = mixture.GaussianMixture(n_components=num_of_clusters, covariance_type='tied')
-    clf.fit(data)
-    qxt = tfd.MultivariateNormalTriL(loc=clf.means_, scale_tril=tf.linalg.cholesky(clf.covariances_))
     ixt_nce = nce_estimator(num_of_samples, qxt)
-    ixt_mine = mine_estimator(qxt, clf.weights_, clf.means_, num_of_samples=num_of_samples)
+    ixt_mine = mine_estimator(qxt, weights, means, num_of_samples=num_of_samples)
     return ixt_nce, ixt_mine
 
 
@@ -107,11 +104,9 @@ def ity_mine_estimator(qyt, weights, means, num_of_samples):
     return ixt
 
 
-def get_iyt_clustered(data, num_of_clusters, py_x, py, num_of_samples):
+def get_iyt_clustered(qxt, data, weights, means, num_of_clusters, py_x, py, num_of_samples):
     """Calculate ixt after clustring to mixture of gaussian"""
-    clf = mixture.GaussianMixture(n_components=num_of_clusters, covariance_type='tied')
-    clf.fit(data)
-    qxt = tfd.MultivariateNormalTriL(loc=clf.means_, scale_tril=tf.linalg.cholesky(clf.covariances_))
+
     log_py_ts = []
     qyt = []
     for t_index in range(num_of_clusters):
@@ -121,19 +116,23 @@ def get_iyt_clustered(data, num_of_clusters, py_x, py, num_of_samples):
         log_py_ts.append(np.log(py_t))
         qyt.append(tfd.Categorical(probs=py_t))
     ity_linear = linear_estimator(py, log_py_ts)
-    ity_mine = ity_mine_estimator(qyt, clf.weights_, clf.means_, num_of_samples=num_of_samples)
+    ity_mine = ity_mine_estimator(qyt, weights, means, num_of_samples=num_of_samples)
     return ity_linear, ity_mine
 
 
 def get_information_all_layers_clusterd(model, x_test, num_of_clusters=None, num_of_samples=None, xs=None,
                                         py_x=None, py=None):
     """The infomration I(X;T) and I(T;Y) after you clustered T to mixture of gaussians"""
-    ixts = [get_ixt_clustered(tf.keras.Model(model.inputs, model.layers[layer_indec].output)(x_test),
-                              num_of_clusters=num_of_clusters[layer_indec], num_of_samples=num_of_samples)
-            for layer_indec in range(len(model.layers))]
-    itys = [get_iyt_clustered(tf.keras.Model(model.inputs, model.layers[layer_indec].output)(xs),
-                              num_of_clusters=num_of_clusters[layer_indec], py_x=py_x, py=py, num_of_samples=num_of_samples)
-            for layer_indec in range(len(model.layers))]
+    ixts, itys = [], []
+    for layer_index in range(len(model.layers)):
+        data = tf.keras.Model(model.inputs, model.layers[layer_index].output)(x_test)
+        clf = mixture.GaussianMixture(n_components=num_of_clusters[layer_index], covariance_type='tied')
+        clf.fit(data)
+
+        qxt = tfd.MultivariateNormalTriL(loc=clf.means_, scale_tril=tf.linalg.cholesky(clf.covariances_))
+        ixts.append(get_ixt_clustered(qxt=qxt,  weights= clf.weights_, means=clf.means_, num_of_samples=num_of_samples))
+        itys.append(get_iyt_clustered(qxt=qxt, data=data, weights= clf.weights_, means=clf.means_,
+                                      num_of_clusters=num_of_clusters[layer_index], py_x=py_x, py=py, num_of_samples=num_of_samples))
     return ixts, itys
 
 
@@ -143,10 +142,10 @@ def get_ixt_all_layers(model, x_test, noisevar):
     return ixts
 
 
-def get_information_all_layers_MINE(model, x_test, y_test):
+def get_information_all_layers_MINE(model, x_test, y_test, batch_size):
     # Get I(X;T) I(Y;T) for each layer with the MINE estimator
-    ixts = [get_information_MINE(x_test, tf.keras.Model(model.inputs, layer.output)(x_test)) for layer in model.layers]
-    iyts = [get_information_MINE(y_test, tf.keras.Model(model.inputs, layer.output)(x_test)) for layer in model.layers]
+    ixts = [get_information_MINE(x_test, tf.keras.Model(model.inputs, layer.output)(x_test), batch_size=batch_size) for layer in model.layers]
+    iyts = [get_information_MINE(y_test, tf.keras.Model(model.inputs, layer.output)(x_test), batch_size=batch_size) for layer in model.layers]
     return ixts, iyts
 
 

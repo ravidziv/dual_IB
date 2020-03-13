@@ -69,10 +69,10 @@ def get_information_dual(data, num_of_clusters, A, lambd, x_entopy, y_entopy, be
 
 def get_information_dual_all_layers(model, num_of_clusters=None, xs=None,
                                     A=None, lambd=None, px=None, py=None, beta_func=None):
-    itys = [get_information_dual(tf.keras.Model(model.inputs, model.layers[layer_indec].output)(xs),
+    information = [get_information_dual(tf.keras.Model(model.inputs, model.layers[layer_indec].output)(xs),
                                  num_of_clusters=num_of_clusters[layer_indec], A=A, lambd=lambd, x_entopy=px.entropy(),
                                  y_entopy=py.entropy(), beta_func=beta_func) for layer_indec in range(len(model.layers))]
-    return itys
+    return information
 
 
 

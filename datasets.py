@@ -1,25 +1,7 @@
-from jax import random, vmap, jit, grad
-import numpy as onp
-import jax.numpy as np
+import numpy as np
 import tensorflow as tf
-from jax.experimental import stax
-from jax.experimental.stax import Dense, Relu, LogSoftmax
 import tensorflow_probability as tfp
-import utils
 
-def build_network(layer_widths, nonlin, clf_layer = False, y_dim = 2):
-  layers = []
-  for i, width in enumerate(layer_widths):
-    layers.append(stax.Dense(width))
-    #Last layer for non classification
-    if not clf_layer and i == len(layer_widths)-1:
-      break##
-    layers.append(nonlin)
-  if clf_layer:
-    layers.append(Dense(y_dim))
-    layers.append(LogSoftmax)
-  init_random_params, predict_fun = stax.serial(*layers)
-  return init_random_params, predict_fun
 
 def bulid_model(layer_widths, y_dim=2, nonlin='relu'):
   model = tf.keras.Sequential()
@@ -27,6 +9,7 @@ def bulid_model(layer_widths, y_dim=2, nonlin='relu'):
       model.add(tf.keras.layers.Dense(width, activation='relu'))
   model.add(tf.keras.layers.Dense(y_dim, activation='linear'))
   return model
+
 
 def create_dataset(num_train, num_test, x_dim, layer_widths, nonlin, lambd_factor = 2.6,
                    alpha=0.025, batch_size=128, r=5):
@@ -48,8 +31,8 @@ def create_dataset(num_train, num_test, x_dim, layer_widths, nonlin, lambd_facto
     py_x_samp, py_xt_sampe = py_x_normalize[:,:num_train], py_x_normalize[:,num_train:]
     probs = np.sum(py_x_samp.numpy(), axis=1)
     probs = probs / np.sum(probs)
-    py = tfp.distributions.Categorical(probs=onp.array(probs))
-    px = tfp.distributions.Categorical(probs=onp.ones((num_test))/num_test)
+    py = tfp.distributions.Categorical(probs=np.array(probs))
+    px = tfp.distributions.Categorical(probs=np.ones((num_test))/num_test)
     train_ds = tf.data.Dataset.from_tensor_slices((x_samp, tf.transpose(py_x_samp)))
     test_ds = tf.data.Dataset.from_tensor_slices((xt_samp, tf.transpose(py_xt_sampe)))
     train_ds = train_ds.batch(batch_size)

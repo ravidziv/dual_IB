@@ -1,0 +1,9 @@
+name: dual_IB
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      batch_size: {type: int, default: 100}
+    command: "python main_fit.py"
+

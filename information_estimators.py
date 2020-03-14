@@ -154,16 +154,14 @@ def get_information_bins_estimators(batch_test, model, num_of_bins=50):
     x_test, labels = batch_test
     bins = np.linspace(-1, 1, num_of_bins)
     pxs, pys, unique_inverse_x, unique_inverse_y = extract_probs(labels.numpy(), x_test.numpy())
-    partial_func = partial(calc_information_bins, bins=bins, pys=pys, pxs = pxs, unique_inverse_x=unique_inverse_x,
+    partial_func = partial(information_bins, bins=bins, pys=pys, pxs = pxs, unique_inverse_x=unique_inverse_x,
                            py_x=labels.numpy().T)
     ts = [tf.keras.Model(model.inputs, model.layers[layer_index].output)(x_test) for layer_index in range(len(model.layers))]
     params = [partial_func(ts[i].numpy()) for i in range(len(ts))]
     return params
 
 
-
-
-def calc_information_bins(data, bins, pys, pxs, unique_inverse_x, py_x):
+def information_bins(data, bins, pys, pxs, unique_inverse_x, py_x):
     digitized = bins[np.digitize(np.squeeze(data.reshape(1, -1)), bins) - 1].reshape(len(data), -1)
     b2 = np.ascontiguousarray(digitized).view(
 		np.dtype((np.void, digitized.dtype.itemsize * digitized.shape[1])))

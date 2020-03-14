@@ -4,6 +4,8 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import logging, os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+import mlflow
+import mlflow.tensorflow
 
 import tensorflow as tf
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -32,8 +34,8 @@ flags.DEFINE_string('checkpoint_path','log/', '')
 
 
 flags.DEFINE_integer('x_dim',10, '')
-flags.DEFINE_integer('num_train', 1000, '')
-flags.DEFINE_integer('num_test', 1000, '')
+flags.DEFINE_integer('num_train', 100, '')
+flags.DEFINE_integer('num_test', 100, '')
 flags.DEFINE_integer('input_shape', 10, '')
 flags.DEFINE_integer('y_dim', 2, '')
 
@@ -42,7 +44,7 @@ flags.DEFINE_float('lambd', 10.6, '')
 
 flags.DEFINE_float('lr', 1e-2, '')
 flags.DEFINE_float('beta', 0.99, '')
-flags.DEFINE_integer('num_epochs', 100, '')
+flags.DEFINE_integer('num_epochs', 10, '')
 flags.DEFINE_integer('batch_per_epoch', 100, '')
 flags.DEFINE_integer('num_iterations_to_print', 5, '')
 flags.DEFINE_integer('num_of_epochs_inf_labels', 5, '')
@@ -61,6 +63,7 @@ flags.DEFINE_string('nonlin_dataset','Relu', '')
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.FileHandler('log_file'))
+mlflow.tensorflow.autolog(1)
 
 def bulid_model(input_shape, y_dim=2, nonlin = 'tanh', layers_width=[]):
   model = tf.keras.Sequential()
@@ -131,54 +134,41 @@ def train(train_ds, test_ds, lr, beta, num_epochs, batch_per_epoch,
             loss_value = train_step(batch, model , loss_fn, optimizer)
             if ind % num_iterations_to_print == 0:
                 for batch_test in  test_ds.take(1):
-                    t = time.time()
+                    test_loss_val, linear_information, information_MINE, information_clustered, information_dual_ib, information_bins=[0],[[0,0]],[[0,0],[0,0]],[0],\
+                                                                                                                                      [[0,0]],[[0,0]]
+                    information_clustered = [[[0,0], [0,0]],[[0,0], [0,0]]]
                     test_loss_val = test_step(model=model, batch=batch_test, loss_fn=loss_fn)
-                    print (1,t - time.time())
-                    t = time.time()
-                    information_bins = get_information_bins_estimators(batch_test, model, num_of_bins=num_of_bins)
-                    print(2,t - time.time())
-                    t = time.time()
-
+                    #information_bins = get_information_bins_estimators(batch_test, model, num_of_bins=num_of_bins)
                     linear_information = get_linear_information(model, batch_test, py.entropy(), num_of_epochs_inf_labels, lr_labels, noisevar)
-                    print(3,t - time.time())
-                    t = time.time()
-
-                    information_MINE = get_information_all_layers_MINE(model=model, x_test=batch_test[0], y_test=batch_test[1], batch_size = 500)
-                    print(4,t - time.time())
-                    t = time.time()
-
-                    information_clustered = get_information_all_layers_clusterd(
-                        model=model, x_test=batch_test[0], num_of_clusters=num_of_clusters, py_x=py_x, xs=xs, py=py, num_of_samples=num_of_samples)
-                    print(5, t - time.time())
-                    t = time.time()
-
-                    information_dual_ib = get_information_dual_all_layers(model=model, num_of_clusters=num_of_clusters, xs=xs,
-                                                    A=A, lambd=lambd, px=px, py=py, beta_func=beta_func)
-                    print(6, t - time.time())
-                    t = time.time()
-
+                    #information_MINE = get_information_all_layers_MINE(model=model, x_test=batch_test[0], y_test=batch_test[1], batch_size = 500)
+                    #information_clustered = get_information_all_layers_clusterd(
+                    #    model=model, x_test=batch_test[0], num_of_clusters=num_of_clusters, py_x=py_x, xs=xs, py=py, num_of_samples=num_of_samples)
+                    #information_dual_ib = get_information_dual_all_layers(model=model, num_of_clusters=num_of_clusters, xs=xs,
+                    #                                A=A, lambd=lambd, px=px, py=py, beta_func=beta_func)
                     store_data(matrices, loss_value, test_loss_val, linear_information, information_MINE, information_clustered, information_dual_ib, information_bins)
                 log_summary(summary_writer, optimizer, epoch, matrices, logger)
             ind += 1
 
 def main(argv):
-    #Delete previous runs
-    if os.path.isdir(FLAGS.summary_path):
-        shutil.rmtree(FLAGS.summary_path)
-    train_ds, test_ds, py, py_x, xs, px, A, lambd= create_dataset(FLAGS.num_train, FLAGS.num_test,
-                                       FLAGS.x_dim, FLAGS.layer_widths,  FLAGS.nonlin_dataset, batch_size=FLAGS.batch_size,
-                                       lambd_factor=FLAGS.lambd,
-                                       alpha=FLAGS.alpha)
-    train(train_ds, test_ds, FLAGS.lr, FLAGS.beta, FLAGS.num_epochs,
-          FLAGS.batch_per_epoch,
-          FLAGS.num_iterations_to_print, FLAGS.noisevar, py=py, py_x=py_x, xs=xs, px=px, A=A, lambd=lambd,
-          lr_labels=FLAGS.lr_labels, num_of_clusters=FLAGS.num_of_clusters,
-          num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels, beta_func=beta_func,
-          num_of_samples=FLAGS.num_of_samples, num_of_bins=FLAGS.num_of_bins,
-          input_shape=FLAGS.input_shape, y_dim=FLAGS.y_dim , nonlin=FLAGS.nonlin, layers_width= FLAGS.layers_width
-          )
-    logger.info('Done')
+    with mlflow.start_run():
+
+        #Delete previous runs
+        if os.path.isdir(FLAGS.summary_path):
+            shutil.rmtree(FLAGS.summary_path)
+        train_ds, test_ds, py, py_x, xs, px, A, lambd= create_dataset(FLAGS.num_train, FLAGS.num_test,
+                                           FLAGS.x_dim, FLAGS.layer_widths,  FLAGS.nonlin_dataset, batch_size=FLAGS.batch_size,
+                                           lambd_factor=FLAGS.lambd,
+                                           alpha=FLAGS.alpha)
+        train(train_ds, test_ds, FLAGS.lr, FLAGS.beta, FLAGS.num_epochs,
+              FLAGS.batch_per_epoch,
+              FLAGS.num_iterations_to_print, FLAGS.noisevar, py=py, py_x=py_x, xs=xs, px=px, A=A, lambd=lambd,
+              lr_labels=FLAGS.lr_labels, num_of_clusters=FLAGS.num_of_clusters,
+              num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels, beta_func=beta_func,
+              num_of_samples=FLAGS.num_of_samples, num_of_bins=FLAGS.num_of_bins,
+              input_shape=FLAGS.input_shape, y_dim=FLAGS.y_dim , nonlin=FLAGS.nonlin, layers_width= FLAGS.layers_width
+              )
+        logger.info('Done')
 
 
 if __name__ == "__main__":
-    app.run(main)
+        app.run(main)

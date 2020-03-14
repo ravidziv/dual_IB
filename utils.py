@@ -15,6 +15,7 @@ def log_summary(summary_writer, optimizer, epoch, matrices, logger):
                 message +='{} {:0.3f}, '.format(metric.name, metric.result())
                 metric.reset_states()
         logger.info(message)
+        #print (message)
 
 def load_matrices(model):
     """Return dict of matrices for the loss and all the information measures."""

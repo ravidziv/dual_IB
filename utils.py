@@ -1,9 +1,10 @@
 import numpy as np
 import tensorflow as tf
-
-def log_summary(summary_writer, optimizer, epoch, matrices, logger):
+import pandas as pd
+def log_summary(summary_writer, epoch, matrices, logger):
     message = "-"*100 +"\n"
     message += 'Epoch {}, '.format(epoch+1)
+    names, vals = [], []
     with summary_writer.as_default():
         for matric_name in matrices:
             metric_list = matrices[matric_name]
@@ -11,38 +12,44 @@ def log_summary(summary_writer, optimizer, epoch, matrices, logger):
                 metric_list = [metric_list]
             for i in range(len(metric_list)):
                 metric = metric_list[i]
-                tf.summary.scalar(metric.name, metric.result(), step = optimizer.iterations)
+                tf.summary.scalar(metric.name, metric.result(), step = epoch)
+                vals.append(metric.result())
+                names.append(metric.name)
                 message +='{} {:0.3f}, '.format(metric.name, metric.result())
                 metric.reset_states()
         logger.info(message)
-        #print (message)
+    df = pd.DataFrame.from_records([vals], columns=names)
+    df['epoch'] = epoch+1
+    return df
 
-def load_matrices(model):
+
+
+def load_matrices(num_of_layers):
     """Return dict of matrices for the loss and all the information measures."""
     train_loss = tf.keras.metrics.Mean(name='Train loss')
     test_loss = tf.keras.metrics.Mean(name='Test loss')
-    test_ixt_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})".format(i)) for i in range(len(model.layers))]
-    test_ity_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})".format(i)) for i in range(len(model.layers))]
+    test_ixt_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})".format(i)) for i in range(num_of_layers)]
+    test_ity_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})".format(i)) for i in range(num_of_layers)]
     test_ixt_clusterd_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_c_nce".format(i)) for i in
-                               range(len(model.layers))]
+                               range(num_of_layers)]
     test_ity_clusterd_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_c_nce".format(i)) for i in
-                               range(len(model.layers))]
+                               range(num_of_layers)]
     test_ixt_dual_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_dual".format(i)) for i in
-                           range(len(model.layers))]
+                           range(num_of_layers)]
     test_ity_dual_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_dual".format(i)) for i in
-                           range(len(model.layers))]
+                           range(num_of_layers)]
     test_ity_mine_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_mine".format(i)) for i in
-                           range(len(model.layers))]
+                           range(num_of_layers)]
     test_ixt_mine_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_mine".format(i)) for i in
-                           range(len(model.layers))]
+                           range(num_of_layers)]
     test_ity_clusterd_mine_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_c_mine".format(i)) for i in
-                           range(len(model.layers))]
+                           range(num_of_layers)]
     test_ixt_mine_clusterd_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_c_mine".format(i)) for i in
-                           range(len(model.layers))]
+                           range(num_of_layers)]
     test_ixt_bins_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})_bins".format(i)) for i in
-                                    range(len(model.layers))]
+                                    range(num_of_layers)]
     test_ity_bins_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})_bins".format(i)) for i in
-                                    range(len(model.layers))]
+                                    range(num_of_layers)]
     matrices = {}
     matrices['train_loss'] = train_loss
     matrices['test_loss'] = test_loss

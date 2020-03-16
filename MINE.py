@@ -1,6 +1,8 @@
 
 from tensorflow.keras.models import Model
 import tensorflow as tf
+import numpy as np
+
 
 def mine_loss(args, batch_size):
     t_xy = args[0]
@@ -9,6 +11,25 @@ def mine_loss(args, batch_size):
     loss = -(tf.reduce_mean(t_xy) - tf.reduce_logsumexp(t_xy_bar) + log_term)
     return loss
 
+
+
+def get_information_MINE(xs, ts, batch_size=50, epochs=25, num_of_epochs_average=10):
+    """return the information between x and t by the MINE estimator"""
+    mine_model = MINE(x_dim=xs.shape[1], y_dim=ts.shape[1], batch_size=batch_size)
+    #The zero loss is a workaround to remove the warning
+    mine_model.compile(optimizer='adam', loss = {'output_1': lambda x,y : 0.0})
+    fit_history = mine_model.fit(np.concatenate([xs, ts], axis=1), y=xs.numpy(), batch_size=batch_size, epochs=epochs,
+                                 verbose=0)
+    fit_loss = np.array(fit_history.history['loss'])
+    return tf.reduce_mean(-fit_loss[-num_of_epochs_average:])
+
+
+
+def get_information_all_layers_MINE(model, x_test, y_test, batch_size):
+    # Get I(X;T) I(Y;T) for each layer with the MINE estimator
+    ixts = [get_information_MINE(x_test, tf.keras.Model(model.inputs, layer.output)(x_test), batch_size=batch_size) for layer in model.layers]
+    iyts = [get_information_MINE(y_test, tf.keras.Model(model.inputs, layer.output)(x_test), batch_size=batch_size) for layer in model.layers]
+    return ixts, iyts
 
 class MINE(Model):
     def __init__(self, x_dim=None, y_dim=None, network=None, batch_size=32):

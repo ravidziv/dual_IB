@@ -21,16 +21,16 @@ def calc_condtion_entropy(px, t_data, unique_inverse_x):
     return H2X
 
 
+ent = lambda pt: -np.sum(pt * np.log2(pt), axis=0)
+
 def calc_information_from_mat(px, py, pt, data, unique_inverse_x, py_t):
     """Calculate the MI based on binning of the data"""
-    H2 = -np.sum(pt * np.log2(pt))
-    hy = -np.sum(py * np.log2(py))
-    HYT =np.sum(pt*(-np.sum(py_t * np.log2(py_t), axis=0)))
-
-    H2X = calc_condtion_entropy(px, data, unique_inverse_x)
+    Ht = ent(pt)
+    hy = ent(py)
+    HYT =np.sum(pt*(ent(py_t)))
+    #H2X = calc_condtion_entropy(px, data, unique_inverse_x)
     IY = hy - HYT
-    IX = H2 - H2X
-    return IY, IX
+    return IY, Ht
 
 def extract_probs(label, x):
 	"""calculate the probabilities of the given data and labels p(x), p(y) and (y|x)"""

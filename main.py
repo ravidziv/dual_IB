@@ -25,7 +25,6 @@ import shutil
 import os
 from information_estimators import get_ixt_all_layers, get_information_all_layers_MINE, get_information_all_layers_clusterd
 from information_estimators import  get_information_bins_estimators
-from dual_ib import get_information_dual_all_layers, beta_func
 import time
 FLAGS = flags.FLAGS
 

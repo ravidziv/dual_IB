@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from information_utils import calc_information_from_mat, extract_probs
+from estimators.information_utils import calc_information_from_mat, extract_probs
 from functools import partial
 
 def get_unique_probs(x):

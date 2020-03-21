@@ -33,8 +33,9 @@ def create_dataset(num_train, num_test, x_dim, layer_widths, nonlin, lambd_facto
     probs = probs / np.sum(probs)
     py = tfp.distributions.Categorical(probs=np.array(probs))
     px = tfp.distributions.Categorical(probs=np.ones((num_test))/num_test)
-    train_ds = tf.data.Dataset.from_tensor_slices((x_samp, tf.transpose(py_x_samp)))
-    test_ds = tf.data.Dataset.from_tensor_slices((xt_samp, tf.transpose(py_xt_sampe)))
-    train_ds = train_ds.batch(batch_size)
-    test_ds = test_ds.batch(py_xt_sampe.shape[1])
+    train_ds = tf.data.Dataset.from_tensor_slices((x_samp, tf.transpose(py_x_samp))).shuffle(buffer_size=1000)
+    test_ds = tf.data.Dataset.from_tensor_slices((xt_samp, tf.transpose(py_xt_sampe))).shuffle(buffer_size=1000)
+
+    train_ds = train_ds.batch(batch_size).repeat()
+    test_ds = test_ds.batch(batch_size).repeat()
     return train_ds, test_ds, py, tf.transpose(py_xt_sampe), xt_samp, px, A[num_train:], lambd

@@ -1,11 +1,10 @@
 import numpy as np
 import tensorflow as tf
-from scipy.special import logsumexp, softmax
+from scipy.special import logsumexp
 from sklearn.metrics import pairwise_distances
-from MINE import MINE, get_information_MINE
+from estimators.MINE import get_information_MINE
 from sklearn import mixture
 from  tensorflow_probability import distributions as tfd
-from functools import partial
 from network_utils import bulid_model
 
 def GMM_entropy(dist, var, d, bound='upper', weights=None):

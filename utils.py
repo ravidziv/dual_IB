@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 def log_summary(summary_writer, epoch, matrices, logger):
+
     message = "-"*100 +"\n"
     message += 'Epoch {}, '.format(epoch+1)
     names, vals = [], []
@@ -25,7 +26,7 @@ def log_summary(summary_writer, epoch, matrices, logger):
 
 
 def load_matrices(num_of_layers):
-    """Return dict of matrices for the loss and all the information measures."""
+    """Return dict of matrices for the loss and all the informatget_ixt_all_layersion measures."""
     train_loss = tf.keras.metrics.Mean(name='Train loss')
     test_loss = tf.keras.metrics.Mean(name='Test loss')
     test_ixt_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})".format(i)) for i in range(num_of_layers)]

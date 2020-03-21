@@ -7,28 +7,31 @@ import mlflow
 import mlflow.tensorflow
 import tensorflow as tf
 from absl import flags
+import numpy as np
 from absl import app
 import glob
 import pandas as pd
 from datasets import create_dataset
 from utils import store_data, log_summary, load_matrices
-from information_estimators import get_information_all_layers_clusterd, get_nonlinear_information
-from MINE import get_information_all_layers_MINE
-from binning_MI import  get_information_bins_estimators2
-from dual_ib import get_information_dual_all_layers, beta_func
+from estimators.information_estimators import get_information_all_layers_clusterd, get_nonlinear_information
+from estimators.MINE import get_information_all_layers_MINE
+from estimators.binning_MI import  get_information_bins_estimators2
+from estimators.dual_ib import get_information_dual_all_layers, beta_func
 FLAGS = flags.FLAGS
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.FileHandler('log_file'))
 
-flags.DEFINE_integer('num_of_epochs_inf_labels', 2, '')
+flags.DEFINE_integer('num_of_epochs_inf_labels', 80, '')
 flags.DEFINE_string('csv_path','data.csv', '')
 flags.DEFINE_multi_integer('num_of_clusters', [3, 3, 3, 3], 'The width of the layers in the random network')
-flags.DEFINE_integer('num_of_samples', 2, '')
+flags.DEFINE_integer('num_of_samples', 100, '')
 flags.DEFINE_float('binsize', 0.1, 'The size of the bins')
-flags.DEFINE_string('run_id', '7dcef91d89654b40a56e58114bde1ca2', 'The id of the run that you want to load')
+flags.DEFINE_string('run_id', '7a03c2c57a58453688ffa352e571b9dd', 'The id of the run that you want to load')
 flags.DEFINE_float('noisevar', 1e-1, '')
 flags.DEFINE_float('lr_labels', 5e-2, '')
+flags.DEFINE_integer('num_of_steps', 100, 'The number of steps to calculate')
+
 
 def process_list(params_val):
     return [int(s) for s in params_val.split('[')[1].split(']')[0].split(',')]
@@ -53,12 +56,15 @@ def main(argv):
     with mlflow.start_run():
         run = mlflow.get_run(run_id=FLAGS.run_id)
         params = run.data.params
+        #base_line = mlflow.get_artifact_uri().split('Users/ravidziv/PycharmProjects')[-1]
+        #new_base_line = '/home/aa-user/Ravid' +base_line
+        new_base_line = mlflow.get_artifact_uri()
         model_path = './mlruns/0/{}/artifacts/model/checkpoints/*'.format(FLAGS.run_id)
         layer_widths = process_list(params['layer_widths'])
         num_of_layers = len(process_list(params['layers_width']))+1
         matrices = load_matrices(num_of_layers=num_of_layers)
-        summary_path = mlflow.get_artifact_uri() + "/tensorboard_logs_n"
-        path = mlflow.get_artifact_uri() + "/model/data/{}".format(FLAGS.csv_path)
+        summary_path = new_base_line + "/tensorboard_logs_n"
+        path = mlflow.get_artifact_uri() + "/{}".format(FLAGS.csv_path)
         summary_writer = tf.summary.create_file_writer(summary_path)
         train_ds, test_ds, py, py_x, xs, px, A, lambd = create_dataset(int(params['num_train']),
                                                                        int(params['num_test']),
@@ -70,8 +76,12 @@ def main(argv):
         dirs = glob.glob(model_path)
         dfs  =[]
         #Go over all the directories in the path (epochs)
+        dirs.sort(key=lambda x: int(x.split('/')[-1].split('_')[0]))
+        epochs_to_calculate = np.logspace(0, np.log10(len(dirs)), FLAGS.num_of_steps, dtype=np.int)
         for model_path in dirs:
             epoch = int(model_path.split('/')[-1].split('_')[0])
+            if epoch not in epochs_to_calculate:
+                continue
             model = tf.keras.models.load_model(model_path)
             #get the train loss
             for batch_train in train_ds.take(1):
@@ -83,10 +93,11 @@ def main(argv):
                     get_informations(batch_test, model, py, py_x, xs, A, lambd, px)
                 store_data(matrices, loss_value, test_loss_val, linear_information, information_MINE, information_clustered,
                            information_dual_ib, information_bins)
+
                 df = log_summary(summary_writer, epoch, matrices, logger)
                 dfs.append(df)
-        dfs = pd.concat(dfs, axis=0, sort=True)
-        dfs.to_csv(path)
+            dfs_new = pd.concat(dfs, axis=0, sort=True)
+            dfs_new.to_csv(path)
 
 
 if __name__ == "__main__":

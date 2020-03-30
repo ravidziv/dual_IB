@@ -3,6 +3,6 @@ conda_env: conda.yaml
 
 entry_points:
   main:
-    command: "python main_fit.py"
+    command: "python main.py"
   process:
       command: "python process_data.py"

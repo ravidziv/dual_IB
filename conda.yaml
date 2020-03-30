@@ -5,8 +5,11 @@ channels:
 dependencies:
   - python==3.6
   - pip:
+    - pip
+    - urllib3
+    - tensorflow_addons
     - mlflow
-    - tensorflow
+    - tensorflow-gpu==2.2.0rc1
     - matplotlib
     - tensorflow_probability
     - sklearn

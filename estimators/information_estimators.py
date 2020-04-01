@@ -10,6 +10,8 @@ from network_utils import bulid_model
 from estimators.dual_ib import calc_IXT_p, calc_IYT_p
 import time
 import math as m
+from functools import  partial
+
 pi = tf.constant(m.pi)
 
 
@@ -24,26 +26,27 @@ def GMM_entropy(dist, var, d, bound='upper', weights=None, n=1):
         dist_norm = - dist / (2.0 * var)  # uses the KL distance
     elif bound is 'lower':
         dist_norm = - dist / (8.0 * var)  # uses the Bhattacharyya distance
-    const = 0.5 * d * tf.math.log(2.0 * pi * tf.cast(tf.math.exp(1.0), tf.float32) * var) + tf.math.log(tf.cast(n, tf.float32))
+    const = 0.5 * tf.cast(d, tf.float32) * tf.math.log(2.0 * pi * tf.cast(tf.math.exp(1.0), tf.float32) * var) + tf.math.log(tf.cast(n, tf.float32))
     h = tf.reduce_mean(const) - tf.reduce_mean(tf.reduce_logsumexp(dist_norm, axis=1))
     return h
 
 @tf.function
 def gaussian_entropy_np(d, var):
     # Entropy of a Gaussian distribution with 'd' dimensions and log variance 'log_var'
-    h = 0.5 * d * (tf.math.log(2.0 * pi * tf.cast(np.exp(1), tf.float32)) + tf.math.log(var))
+    log_d = tf.math.log(var)
+    h = 0.5 * tf.cast(d, tf.float32) * (tf.math.log(2.0 * pi * tf.cast(np.exp(1), tf.float32)) + log_d)
     return h
 
 
 
 @tf.function
-def get_ixt_gmm(dist_matrix, input_dim = 0, noisevar=None):
+def get_ixt_gmm(dist_matrix, input_dim = 0, n = 1, noisevar=None):
     """Get I(X;T) assumeing that p(t|x) is a gsussian with noise variance (nonlinear IB)."""
     H_T_given_X = gaussian_entropy_np(input_dim, noisevar)
     #dist_matrix = pairwise_distances(tf.cast(inputs, tf.float32))
     #H_T_lb = GMM_entropy(dist_matrix, noisevar, input_dim, 'lower')
     #Ixt_lb = H_T_lb - H_T_given_X
-    H_T = GMM_entropy(dist_matrix, noisevar, input_dim, 'upper', n=input_dim)
+    H_T = GMM_entropy(dist_matrix, noisevar, input_dim, 'upper', n=n)
     Ixt = H_T - H_T_given_X  # nonlinear IB upper bound on I(X;T)
     return tf.cast(Ixt, tf.float64)
 
@@ -77,20 +80,20 @@ def mine_estimator(qxt, pts, means, num_of_samples, epochs=100):
 
 
 @tf.function
-def get_ixt_clustered(dist_matrix, input_dim=0, variance = 1):
+def get_ixt_clustered(dist_matrix, input_dim=0, n=1, variance = 1):
     """Calculate ixt after clustering to mixture of gaussian."""
     #ixt_nce = nce_estimator(num_of_samples, qxt, sample_x=xs)
     #ixt_mine = get_information_MINE(xs, ts, batch_size=500, epochs=mine_epochs)
     #ixt_mine = ixt_nce
-    ixt_nonlinear =  get_ixt_gmm(dist_matrix, input_dim=input_dim, noisevar=tf.cast(variance, tf.float32))
+    ixt_nonlinear =  get_ixt_gmm(dist_matrix, input_dim=input_dim, n =n , noisevar=tf.cast(variance, tf.float32))
     return ixt_nonlinear
 
 
 def bayes_estimator(py_entropy, py_ts_entropy, pts_prob):
     """The optimal bayes estimator."""
-    tensor  =pts_prob*py_ts_entropy
+    tensor  =1*py_ts_entropy
     tensor_without_nans = tf.where(tf.math.is_nan(tensor), tf.zeros_like(tensor), tensor)
-    hyt =tf.reduce_sum(tensor_without_nans)
+    hyt =tf.reduce_mean(tensor_without_nans)
     return tf.cast(py_entropy, tf.float64) - tf.cast(hyt, tf.float64)
 
 
@@ -149,7 +152,7 @@ def cluster_data(data, num_of_cluster, px, py_x, max_num = 5000 ):
 
 @tf.function
 def get_information(A, lambd, betas, calc_dual, px_entropy, py_entropy, dists, qyt_entropy,
-                    pts_prob, px_t, input_dim, size, dual_inforamtion_arr=0, inforamtion_arr=0):
+                    pts_prob, px_t, input_dim, n, size):
     inforamtion_arr = tf.TensorArray(tf.float64, size=size)
     dual_inforamtion_arr = tf.TensorArray(tf.float64, size=size)
     for i in range(size):
@@ -158,7 +161,8 @@ def get_information(A, lambd, betas, calc_dual, px_entropy, py_entropy, dists, q
         qyt_entropy_c = qyt_entropy.read(i)
         pts_prob_c = pts_prob.read(i)
         px_t_c = px_t.read(i)
-        ixt = get_ixt_clustered(dist_matrix=dist_matrix, input_dim=input_dim, variance=beta_s)
+        input_dim_c = input_dim.read(i)
+        ixt = get_ixt_clustered(dist_matrix=dist_matrix, input_dim=input_dim_c, n=n, variance=beta_s)
         ity = get_iyt_clustered(py_ts_entropy=qyt_entropy_c, py_entropy=py_entropy,
                                 pts_prob=pts_prob_c)
         inforamtion_arr =inforamtion_arr.write(i,tf.cast( tf.stack([ixt, ity], axis=0), tf.float64))
@@ -166,6 +170,9 @@ def get_information(A, lambd, betas, calc_dual, px_entropy, py_entropy, dists, q
             ixt_dual = calc_IXT_p(pts_prob_c, px_t_c, A, lambd, beta_s, px_entropy)
             ity_dual = calc_IYT_p(pts_prob_c, px_t_c, A, lambd, py_entropy)
             dual_inforamtion_arr=dual_inforamtion_arr.write(i,tf.cast(tf.stack([ixt_dual, ity_dual]), tf.float64))
+        else:
+            dual_inforamtion_arr=dual_inforamtion_arr.write(i,tf.cast(tf.stack([0.0, 0.0]), tf.float64))
+
     return inforamtion_arr.stack(), dual_inforamtion_arr.stack()
 
 
@@ -182,12 +189,12 @@ def get_information_all_layers_clusterd(data_all, num_of_clusters=None,
     qyt_entropy = tf.TensorArray(tf.float64, size=len(num_of_clusters)*len(num_of_clusters[0]))
     pts_prob = tf.TensorArray(tf.float64, size=len(num_of_clusters)*len(num_of_clusters[0]))
     px_t = tf.TensorArray(tf.float64, size=len(num_of_clusters)*len(num_of_clusters[0]))
-
+    input_dim =  tf.TensorArray(tf.int32, size=len(num_of_clusters)*len(num_of_clusters[0]))
     for layer_index , (data, layer_num_clusters) in enumerate(zip(data_all, num_of_clusters)):
         t =tf.timestamp()
         for i in tf.range(len(layer_num_clusters)):
             ind = tf.cast(layer_index*len(num_of_clusters[0]), tf.int32)+tf.cast(i, tf.int32)
-            if ind % 10 ==0:
+            if False and  ind % 10 ==0:
                 tf.print ( ind, i, len(layer_num_clusters), tf.timestamp() - t)
             t = tf.timestamp()
             try:
@@ -200,32 +207,40 @@ def get_information_all_layers_clusterd(data_all, num_of_clusters=None,
             qyt_entropy=qyt_entropy.write(ind, qyt_entropy_c)
             pts_prob=pts_prob.write(ind, pts_prob_c)
             px_t=px_t.write(ind, px_t_c)
+            input_dim = input_dim.write(ind, data.shape[1])
     inforamtion_arr, dual_inforamtion_arr = get_information(A, lambd, betas, calc_dual, px_entropy, py_entropy, dists, qyt_entropy,
-                    pts_prob, px_t, input_dim=data_all[0].shape[0],size=len(num_of_clusters)*len(num_of_clusters[0]))
+                    pts_prob, px_t, input_dim=input_dim,n=data_all[0].shape[0], size=len(num_of_clusters)*len(num_of_clusters[0]))
     return inforamtion_arr, dual_inforamtion_arr
 
 
-
-def get_nonlinear_information(model, batch_test, entropy_y, num_of_epochs_inf_labels, lr_labels, noisevar):
-    information = []
-    for layer_index in range(len(model.layers)):
+def get_nonlinear_information(ts, batch_test, entropy_y, num_of_epochs_inf_labels, lr_labels, noisevar):
+    information = tf.TensorArray(tf.float64, size=len(ts)*len(noisevar))
+    for layer_index in range(len(ts)):
+        pred = ts[layer_index]
         x_test, targets = batch_test
-        pred = tf.keras.Model(model.inputs, model.layers[layer_index].output)(x_test)
-        ity = get_iyt_from_top_model([pred, targets],
-                                           entropy_y=entropy_y,
-                                           num_of_epochs=num_of_epochs_inf_labels, lr=lr_labels)
-        ixt = get_ixt_gmm(pred, noisevar=noisevar)
-        information.append(ixt, ity)
-    return information
+        ity = tf.numpy_function(get_iyt_from_top_model, [pred, targets,
+                                           entropy_y,
+                                           num_of_epochs_inf_labels, lr_labels], [tf.float64])
+        dist_matrix = pairwise_distances(tf.cast(pred, tf.float32))
+        ixt_gmm_part = partial(get_ixt_gmm, dist_matrix = dist_matrix, input_dim= tf.constant(pred.shape[1]),
+                               n =tf.constant(pred.shape[0]))
+        for j in tf.range(len(noisevar)):
+            ind = tf.cast(layer_index*len(noisevar), tf.int32)+tf.cast(j, tf.int32)
 
-def get_iyt_from_top_model(batch, entropy_y, num_of_epochs, lr=1e-3, layers_width=[10, 10]):
+            ixt = ixt_gmm_part(noisevar=tf.gather(noisevar, j))
+            a=information.write(ind,tf.cast(tf.stack([ixt, ity]), tf.float64))
+            a.mark_used()
+
+    return information.stack()
+
+def get_iyt_from_top_model(pred, targets, entropy_y, num_of_epochs, lr=1e-3, layers_width=[10, 10]):
     """Train network to fit logp(y|t)."""
-    pred, targets = batch
     model = bulid_model(pred.shape[1], targets.shape[-1], layers_width=layers_width)
-    optimizer = tf.keras.optimizers.Adam(lr)
-    loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+    optimizer = tf.keras.optimizers.SGD(1e-2, 0.99)
+    #optimizer = tf.keras.optimizers.Adam(lr)
+    loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     model.compile(loss=loss_fn, optimizer=optimizer, metrics=['accuracy'])
-    model.fit(x = batch[0], y = batch[1], epochs = num_of_epochs, verbose =0)
-    loss_value = model.evaluate(x=batch[0], y= batch[1], verbose=0)
-    return entropy_y- loss_value
+    model.fit(x = pred, y = targets, epochs = num_of_epochs, verbose =0)
+    loss_value = model.evaluate(x=pred, y= targets, verbose=0)
+    return tf.cast(entropy_y- loss_value[0], tf.float64)
 

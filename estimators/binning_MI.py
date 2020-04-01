@@ -20,16 +20,19 @@ def bin_information(layerdata, labelixs, binsize):
         H_LAYER_GIVEN_OUTPUT += ixs.mean() * get_entropy(layerdata[ixs, :])
     return H_LAYER, H_LAYER - H_LAYER_GIVEN_OUTPUT
 
-def get_information_bins_estimators2(batch_test, model, binsize=.5):
+def get_information_bins_estimators2(batch_test, ts, binsize=[.5]):
     """Calculate the information for the network for all the epochs and all the layers"""
     x_test, labels = batch_test
     #bins = np.linspace(-1, 1, num_of_bins)
     pxs, pys, unique_inverse_x, unique_inverse_y = extract_probs(labels.numpy(), x_test.numpy())
-    partial_func = partial(information_bins2, binsize=binsize, pys=pys, pxs = pxs, unique_inverse_x=unique_inverse_x,
+    partial_func = partial(information_bins2,  pys=pys, pxs = pxs, unique_inverse_x=unique_inverse_x,
                            py_x=labels.numpy().T)
-    ts = [tf.keras.Model(model.inputs, model.layers[layer_index].output)(x_test) for layer_index in range(len(model.layers))]
-    params = [partial_func(ts[i].numpy()) for i in range(len(ts))]
-    return params
+    information = []
+    for layer_index in range(len(ts)):
+        for bin_index in range(len(binsize)):
+            current_information = partial_func(ts[layer_index].numpy(), binsize=binsize[bin_index])
+            information.append(current_information)
+    return information
 
 
 def information_bins2(data, binsize, pys, pxs, unique_inverse_x, py_x):

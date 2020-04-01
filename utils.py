@@ -55,13 +55,13 @@ def build_tensorarray_with_names(num_of_layers, num_of_clusters, num_of_epochs, 
     for i in  range(num_of_layers):
         inner_arr, inner_names = [], []
         for j in range(len(num_of_clusters[i])):
-            inner_arr.append((tf.TensorArray(dtype=tf.float64, size=num_of_epochs, tensor_array_name=name.format(i, j)), name.format(i, j)))
-            inner_names.append(name.format(i, j))
-        arr.append(inner_arr)
-        names.append(inner_names)
+            arr.append((tf.TensorArray(dtype=tf.float64, size=num_of_epochs, tensor_array_name=name.format(i, j)), name.format(i, j)))
+            names.append(name.format(i, j))
+        #arr.append(inner_arr)
+        #names.append(inner_names)
     return arr, names
 
-def load_matrices2(num_of_layers, num_of_clusters, num_of_epochs):
+def load_matrices2(num_of_layers, num_of_clusters, num_of_epochs, num_of_bins, num_of_noises):
 
     """Return dict of matrices for the loss and all the informatget_ixt_all_layersion measures."""
     train_loss =  (tf.TensorArray(dtype=tf.float64, size=num_of_epochs, name='train_loss'), 'train_loss')
@@ -69,8 +69,8 @@ def load_matrices2(num_of_layers, num_of_clusters, num_of_epochs):
     train_acc =  (tf.TensorArray(dtype=tf.float64, size=num_of_epochs, name='train_acc'), 'train_acc')
     test_acc =  (tf.TensorArray(dtype=tf.float64, size=num_of_epochs, name='test_acc'), 'test_acc')
 
-    test_ixt_bound = [tf.TensorArray(dynamic_size=True,clear_after_read=False, dtype=tf.float64, size=num_of_epochs, tensor_array_name=r"test_i_x_y_{}".format(i)) for i in range(num_of_layers)]
-    test_ity_bound = [tf.keras.metrics.Mean(name=r"test_i_y_t_{}".format(i)) for i in range(num_of_layers)]
+    #test_ixt_bound = [tf.TensorArray(dynamic_size=True,clear_after_read=False, dtype=tf.float64, size=num_of_epochs, tensor_array_name=r"test_i_x_y_{}".format(i)) for i in range(num_of_layers)]
+    #test_ity_bound = [tf.keras.metrics.Mean(name=r"test_i_y_t_{}".format(i)) for i in range(num_of_layers)]
     test_ixt_clusterd_bound, test_ixt_clusterd_names = build_tensorarray_with_names(num_of_layers, num_of_clusters, num_of_epochs, name=r"test_i_x;t_{}_{}_c_nce")
     test_ixt_clusterd_nonlinear_bound, test_ixt_clusterd_nonlinear_names = build_tensorarray_with_names(num_of_layers, num_of_clusters, num_of_epochs, name=r"test_i_x_t_{}_{}_c_nonlinear")
     test_ity_clusterd_bound, test_ity_clusterd_names = build_tensorarray_with_names(num_of_layers, num_of_clusters, num_of_epochs, name=r"test_i_y_t_{}_{}_c_nce")
@@ -78,67 +78,20 @@ def load_matrices2(num_of_layers, num_of_clusters, num_of_epochs):
     test_ixt_mine_clusterd_bound, test_ixt_mine_clusterd_names = build_tensorarray_with_names(num_of_layers, num_of_clusters, num_of_epochs, name=r"test_i_x_t_{}_{}_c_mine")
     test_ixt_dual_bound, test_ixt_dual_names = build_tensorarray_with_names(num_of_layers, num_of_clusters, num_of_epochs, name=r"test_i_x_t_{}_{}_dual")
     test_ity_dual_bound, test_ity_dual_names = build_tensorarray_with_names(num_of_layers, num_of_clusters, num_of_epochs, name=r"test_i_y_t_{}_{}_dual")
-    test_ity_mine_bound = [tf.keras.metrics.Mean(name=r"test_i_y_t_{}_mine".format(i)) for i in
-                           range(num_of_layers)]
-    test_ixt_mine_bound = [tf.keras.metrics.Mean(name=r"test_i_x_t_{}_mine".format(i)) for i in
-                           range(num_of_layers)]
 
-    test_ixt_bins_bound = [tf.keras.metrics.Mean(name=r"testi_x_t_{}_bins".format(i)) for i in
-                                    range(num_of_layers)]
-    test_ity_bins_bound = [tf.keras.metrics.Mean(name=r"test_i_y_t_{}_bins".format(i)) for i in
-                                    range(num_of_layers)]
-    matrices = {}
-    matrices['train_loss'] = train_loss
-    matrices['train_acc'] = train_acc
-    matrices['test_loss'] = test_loss
-    matrices['test_acc'] = test_acc
-    #matrices['test_ixt_bins_bound'] = test_ixt_bins_bound
-    #matrices['test_ity_bins_bound'] = test_ity_bins_bound
-    matrices['test_ixt_dual_bound'] = test_ixt_dual_bound
-    matrices['test_ity_dual_bound'] = test_ity_dual_bound
-    #matrices['test_ity_linear_bound'] = test_ity_bound
-    matrices['test_ity_clusterd_bound_bayes'] = test_ity_clusterd_bound
-    #matrices['test_ixt_linear_bound'] = test_ixt_bound
-    matrices['test_ixt_clusterd_bound_nce'] = test_ixt_clusterd_bound
-    matrices['test_ixt_clusterd_bound_nonlinear'] = test_ixt_clusterd_nonlinear_bound
-    #matrices['test_ity_mine_bound'] = test_ity_mine_bound
-    #matrices['test_ixt_mine_bound'] = test_ixt_mine_bound
-    matrices['test_ity_clusterd_bound_mine'] = test_ity_clusterd_mine_bound
-    matrices['test_ixt_clusterd_bound_mine'] = test_ixt_mine_clusterd_bound
-    return matrices
+    test_ity_mine_bound, test_ity_mine_bound_name = build_tensorarray_with_names(num_of_layers,  [[1]]*num_of_layers, num_of_epochs, name=r"test_i_y_t_{}_mine")
+    test_ixt_mine_bound, test_ixt_mine_bound_name = build_tensorarray_with_names(num_of_layers,  [[1]]*num_of_layers, num_of_epochs, name=r"test_i_x_t_{}_mine")
 
-def load_matrices(num_of_layers, num_of_clusters):
-    """Return dict of matrices for the loss and all the informatget_ixt_all_layersion measures."""
-    train_loss = tf.keras.metrics.Mean(name='train_loss')
-    test_loss = tf.keras.metrics.Mean(name='test_loss')
-    train_acc = tf.keras.metrics.Mean(name='train_acc')
-    test_acc = tf.keras.metrics.Mean(name='test_acc')
-    test_ixt_bound = [tf.keras.metrics.Mean(name=r"Test I(X;T_{})".format(i)) for i in range(num_of_layers)]
-    test_ity_bound = [tf.keras.metrics.Mean(name=r"Test I(Y;T_{})".format(i)) for i in range(num_of_layers)]
-    test_ixt_clusterd_bound = [[tf.keras.metrics.Mean(name=r"test_i_x;t_{}_{}_c_nce".format(i, j)) for j in range(len(num_of_clusters[i]))] for i in
-                               range(num_of_layers)]
-    test_ixt_clusterd__nonlinear_bound = [[tf.keras.metrics.Mean(name=r"test_i_x_t_{}_{}_c_nonlinear".format(i, j)) for j in range(len(num_of_clusters[i]))] for i in
-                               range(num_of_layers)]
-    test_ity_clusterd_bound = [[tf.keras.metrics.Mean(name=r"test_i_y_t_{}_{}_c_nce".format(i, j)) for j in range(len(num_of_clusters[i]))] for i in
-                               range(num_of_layers)]
-    test_ity_clusterd_mine_bound = [[tf.keras.metrics.Mean(name=r"test_i_y_t_{}_{}_c_mine".format(i, j)) for j in range(len(num_of_clusters[i]))] for i in
-                               range(num_of_layers)]
-    test_ixt_mine_clusterd_bound = [[tf.keras.metrics.Mean(name=r"test_i_x_t_{}_{}_c_mine".format(i, j)) for j in range(len(num_of_clusters[i]))] for i in
-                               range(num_of_layers)]
+    #test_ity_mine_bound = [tf.keras.metrics.Mean(name=r"test_i_y_t_{}_mine".format(i)) for i in
+    #                       range(num_of_layers)]
+    #test_ixt_mine_bound = [tf.keras.metrics.Mean(name=r"test_i_x_t_{}_mine".format(i)) for i in
+    #                       range(num_of_layers)]
+    test_ixt_bins_bound, test_ixt_bins_bound_names = build_tensorarray_with_names(num_of_layers, [[1]*num_of_bins]*num_of_layers, num_of_epochs, name=r"testi_x_t_{}_{}_bins")
+    test_ity_bins_bound, test_ity_bins_bound_names = build_tensorarray_with_names(num_of_layers,[[1]*num_of_bins]*num_of_layers, num_of_epochs, name=r"test_i_y_t_{}_{}_bins")
+    test_ixt_bound, test_ixt_bound_names = build_tensorarray_with_names(num_of_layers,[[1]*num_of_noises]*num_of_layers, num_of_epochs, name=r"test_i_y_t_{}_{}_nonlinear")
+    test_ity_bound, test_ity_bound_name = build_tensorarray_with_names(num_of_layers,[[1]*num_of_noises]*num_of_layers, num_of_epochs, name=r"test_i_x_t_{}_{}_nonlinear")
 
-    test_ixt_dual_bound = [[tf.keras.metrics.Mean(name=r"test_i_x_t_{}_{}_dual".format(i, j)) for j in range(len(num_of_clusters[i]))] for i in
-                               range(num_of_layers)]
-    test_ity_dual_bound = [[tf.keras.metrics.Mean(name=r"test_i_y_t_{}_{}_dual".format(i, j)) for j in range(len(num_of_clusters[i]))] for i in
-                               range(num_of_layers)]
-    test_ity_mine_bound = [tf.keras.metrics.Mean(name=r"test_i_y_t_{}_mine".format(i)) for i in
-                           range(num_of_layers)]
-    test_ixt_mine_bound = [tf.keras.metrics.Mean(name=r"test_i_x_t_{}_mine".format(i)) for i in
-                           range(num_of_layers)]
 
-    test_ixt_bins_bound = [tf.keras.metrics.Mean(name=r"testi_x_t_{}_bins".format(i)) for i in
-                                    range(num_of_layers)]
-    test_ity_bins_bound = [tf.keras.metrics.Mean(name=r"test_i_y_t_{}_bins".format(i)) for i in
-                                    range(num_of_layers)]
     matrices = {}
     matrices['train_loss'] = train_loss
     matrices['train_acc'] = train_acc
@@ -148,16 +101,17 @@ def load_matrices(num_of_layers, num_of_clusters):
     matrices['test_ity_bins_bound'] = test_ity_bins_bound
     matrices['test_ixt_dual_bound'] = test_ixt_dual_bound
     matrices['test_ity_dual_bound'] = test_ity_dual_bound
-    matrices['test_ity_linear_bound'] = test_ity_bound
+    matrices['test_ity_nonlinear_bound'] = test_ity_bound
     matrices['test_ity_clusterd_bound_bayes'] = test_ity_clusterd_bound
-    matrices['test_ixt_linear_bound'] = test_ixt_bound
+    matrices['test_ixt_nonlinear_bound'] = test_ixt_bound
     matrices['test_ixt_clusterd_bound_nce'] = test_ixt_clusterd_bound
-    matrices['test_ixt_clusterd_bound_nonlinear'] = test_ixt_clusterd__nonlinear_bound
+    matrices['test_ixt_clusterd_bound_nonlinear'] = test_ixt_clusterd_nonlinear_bound
     matrices['test_ity_mine_bound'] = test_ity_mine_bound
     matrices['test_ixt_mine_bound'] = test_ixt_mine_bound
     matrices['test_ity_clusterd_bound_mine'] = test_ity_clusterd_mine_bound
     matrices['test_ixt_clusterd_bound_mine'] = test_ixt_mine_clusterd_bound
     return matrices
+
 
 def insert_double(mat, information_clustered, index_1, index_2):
     [[mat[i][j][0](information_clustered[i][j][index_1][index_2]) for j in
@@ -167,15 +121,18 @@ def insert_double2(mat, step, information_clustered, index_1, names_list, df_lis
     shape_c = len(mat)
     ind = 0
     for i in range(shape_c):
-        for j in range(len(mat[i])):
-            val =  information_clustered[ind][index_1]
-            te = mat[i][j][0]
-            a = te.write(step,val)
-            c = val
-            df_list.append(c)
-            names_list.append(mat[i][j][1])
-            a.mark_used()
-            ind+=1
+        if len(mat)>len(information_clustered):
+            val = 0
+        else:
+            val =  information_clustered[i][index_1]
+        te = mat[i][0]
+        a = te.write(step,val)
+        c = val
+        df_list.append(c)
+        names_list.append(mat[i][1])
+        a.mark_used()
+        ind+=1
+    return
 
 def insert_measure(mat, step, val, df_list, names_list):
     te = mat[0]
@@ -184,17 +141,20 @@ def insert_measure(mat, step, val, df_list, names_list):
     df_list.append(tf.cast(tf.constant(val), tf.float64))
     names_list.append(mat[1])
 
-def store_data2(matrices, step, loss_value, test_loss_val, linear_information, information_MINE, information_clustered,
-               information_dual_ib, information_bins):
+def store_data2(matrices, step, loss_value, test_loss_val, nonlinear_information, information_MINE, information_clustered,
+                information_dual_ib, information_bins):
     df_list, names_list = [], []
     insert_double2(matrices['test_ixt_dual_bound'],step, information_dual_ib, 0, names_list, df_list)
     insert_double2(matrices['test_ity_dual_bound'],step, information_dual_ib, 1, names_list, df_list)
-
+    insert_double2(matrices['test_ixt_mine_bound'], step, information_MINE, 0, names_list, df_list)
+    insert_double2(matrices['test_ity_mine_bound'], step, information_MINE, 1, names_list, df_list)
+    insert_double2(matrices['test_ixt_bins_bound'], step, information_bins, 0, names_list, df_list)
+    insert_double2(matrices['test_ity_bins_bound'], step, information_bins, 1, names_list, df_list)
+    insert_double2(matrices['test_ixt_nonlinear_bound'], step, nonlinear_information, 0, names_list, df_list)
+    insert_double2(matrices['test_ity_nonlinear_bound'], step, nonlinear_information, 1, names_list, df_list)
     #[matrices['test_ixt_mine_bound'][i](information_MINE[i][0]) for i in range(len(information_MINE))]
     #[matrices['test_ity_mine_bound'][i](information_MINE[i][1]) for i in range(len(information_MINE))]
 
-    #[matrices['test_ixt_nonlinear_bound'][i](linear_information[i][0]) for i in range(len(linear_information))]
-    #[matrices['test_ity_nonlinear_bound'][i](linear_information[i][1]) for i in range(len(linear_information))]
     #insert_double2(matrices['test_ixt_clusterd_bound_nce'],step, information_clustered, 0, 0, names_list, df_list)
     insert_double2(matrices['test_ixt_clusterd_bound_nonlinear'], step, information_clustered, 0, names_list, df_list)
     insert_double2(matrices['test_ity_clusterd_bound_bayes'],step,  information_clustered, 1, names_list, df_list)
@@ -210,33 +170,6 @@ def store_data2(matrices, step, loss_value, test_loss_val, linear_information, i
     insert_measure(matrices['test_acc'], step,  test_loss_val[0], df_list, names_list)
     return df_list, names_list
 
-
-def store_data(matrices, loss_value, test_loss_val, linear_information, information_MINE, information_clustered,
-               information_dual_ib, information_bins):
-
-    [[matrices['test_ixt_dual_bound'][i][j](information_dual_ib[i][j][0]) for j in range(len(information_dual_ib[i]))] for i in range(len(information_dual_ib))]
-    [[matrices['test_ity_dual_bound'][i][j](information_dual_ib[i][j][1]) for j in range(len(information_dual_ib[i]))] for i in range(len(information_dual_ib))]
-
-    [matrices['test_ixt_mine_bound'][i](information_MINE[i][0]) for i in range(len(information_MINE))]
-    [matrices['test_ity_mine_bound'][i](information_MINE[i][1]) for i in range(len(information_MINE))]
-
-    [matrices['test_ixt_nonlinear_bound'][i](linear_information[i][0]) for i in range(len(linear_information))]
-    [matrices['test_ity_nonlinear_bound'][i](linear_information[i][1]) for i in range(len(linear_information))]
-    insert_double(matrices['test_ixt_clusterd_bound_nce'], information_clustered, 0, 0)
-    insert_double(matrices['test_ixt_clusterd_bound_nonlinear'], information_clustered, 0, 2)
-    insert_double(matrices['test_ity_clusterd_bound_bayes'], information_clustered, 1, 0)
-    insert_double(matrices['test_ixt_clusterd_bound_mine'], information_clustered, 0, 1)
-    insert_double(matrices['test_ity_clusterd_bound_mine'], information_clustered, 1, 1)
-    [matrices['test_ixt_bins_bound'][i](information_bins[i][1]) for i in
-     range(len(information_bins))]
-    [matrices['test_ity_bins_bound'][i](information_bins
-                                        [i][0]) for i in
-     range(len(information_bins))]
-
-    matrices['train_loss'](loss_value[0])
-    matrices['train_acc'](loss_value[1])
-    matrices['test_loss'](test_loss_val[0])
-    matrices['test_acc'](test_loss_val[1])
 
 def save_pickle(file_name, list_of_elem):
     with open(file_name, 'a+', newline='') as write_obj:

@@ -31,8 +31,6 @@ def get_information_all_layers_MINE(model, x_test, y_test, batch_size, epochs):
     # Get I(X;T) I(Y;T) for each layer with the MINE estimator
     ixts = [get_information_MINE(x_test, tf.keras.Model(model.inputs, layer.output)(x_test), batch_size=batch_size, epochs=epochs) for layer in model.layers]
     iyts = [get_information_MINE(y_test, tf.keras.Model(model.inputs, layer.output)(x_test), batch_size=batch_size,epochs=epochs) for layer in model.layers]
-    print ('MINE - x',ixts )
-    print ('MINE - y',iyts )
     return ixts, iyts
 
 class MINE(Model):

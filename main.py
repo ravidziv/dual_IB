@@ -30,7 +30,7 @@ flags.DEFINE_float('lambd', 10.6, '')
 
 flags.DEFINE_float('lr', 1e-4, '')
 flags.DEFINE_float('beta', 0.99, '')
-flags.DEFINE_integer('num_epochs', 20000, '')
+flags.DEFINE_integer('num_epochs', 10000, '')
 flags.DEFINE_integer('batch_size', 256, 'batch size for the main network')
 
 flags.DEFINE_multi_integer('layer_width_generator', [10, 5], '')
@@ -46,7 +46,7 @@ def train(train_ds, test_ds, lr, beta, num_epochs, input_shape, y_dim, nonlin, l
     """Train the model and measure the information."""
     model = bulid_model(input_shape=input_shape, y_dim=y_dim, nonlin=nonlin, layers_width=layers_width)
     optimizer = tf.keras.optimizers.SGD(lr, beta)
-    loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+    loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     model.compile(loss=loss_fn, optimizer=optimizer, metrics=['accuracy'])
 
     checkpoint_path = mlflow.get_artifact_uri()+"/model/checkpoints/{}_cp"

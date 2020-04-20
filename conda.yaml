@@ -9,7 +9,7 @@ dependencies:
     - urllib3
     - tensorflow_addons
     - mlflow
-    - tensorflow-gpu==2.2.0rc1
+    - tensorflow-gpu==2.2.0rc3
     - matplotlib
     - tensorflow_probability
     - sklearn

@@ -40,7 +40,7 @@ def information_bins2(data, binsize, pys, pxs, unique_inverse_x, py_x):
     digitized = np.floor(data / binsize).astype('int')
     b2 = np.ascontiguousarray(digitized).view(
 		np.dtype((np.void, digitized.dtype.itemsize * digitized.shape[1])))
-    unique_array, unique_inverse_t, unique_index, unique_counts = \
+    _, unique_inverse_t, unique_index, unique_counts = \
 		np.unique(b2, return_index=True, return_inverse=True, return_counts=True)
     px_t = np.zeros((pxs.shape[0],unique_inverse_t.shape[0]) )
     for t_index in range(len(unique_counts)):
@@ -49,8 +49,18 @@ def information_bins2(data, binsize, pys, pxs, unique_inverse_x, py_x):
     p_ts = unique_counts / float(sum(unique_counts))
     px_t /= np.sum(px_t, axis=0)
     py_t = np.einsum('ij,jt->it', py_x, px_t)
-    ixt, ity =calc_information_from_mat(pxs, pys, p_ts, digitized, unique_inverse_x, py_t)
-    return ity, ixt
+    ity, ixt =calc_information_from_mat(pys, p_ts, py_t)
+    return ixt, ity
 
+ent = lambda pt: -tf.reduce_sum(pt * tf.math.log.log(pt), axis=0)
 
+@tf.function
+def calc_information_from_mat_tf(py, pt, py_t):
+    """Calculate the MI based on binning of the data"""
+    Ht = ent(pt)
+    hy = ent(py)
+    HYT =tf.reduce_sum(pt*(ent(py_t)))
+    #H2X = calc_condtion_entropy(px, data, unique_inverse_x)
+    IY = hy - HYT
+    return IY, Ht
 

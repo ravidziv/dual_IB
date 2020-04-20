@@ -21,9 +21,10 @@ def calc_condtion_entropy(px, t_data, unique_inverse_x):
     return H2X
 
 
-ent = lambda pt: -np.sum(pt * np.log2(pt), axis=0)
+ent = lambda pt: -np.nansum(pt * np.log(pt), axis=0)
 
-def calc_information_from_mat(px, py, pt, data, unique_inverse_x, py_t):
+
+def calc_information_from_mat(py, pt, py_t):
     """Calculate the MI based on binning of the data"""
     Ht = ent(pt)
     hy = ent(py)

@@ -22,7 +22,7 @@ flags.DEFINE_integer('batch_size', 128, 'For training')
 flags.DEFINE_integer('num_of_epochs', 25, 'For training')
 flags.DEFINE_string('activation', 'relu', 'Activation of the encoder layers')
 flags.DEFINE_multi_enum('run_model', 'vib', ['vib', 'ceb','dual_ib'],  'Which model to run')
-flags.DEFINE_float('initial_lr', 1e-3, 'The lr for the train')
+flags.DEFINE_float('initial_lr', 1e-4, 'The lr for the train')
 flags.DEFINE_float('beta', 1e-3, 'beta value for the loss function')
 
 

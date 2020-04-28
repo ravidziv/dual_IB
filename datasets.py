@@ -1,6 +1,10 @@
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
+import tensorflow_datasets as tfds
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.datasets import cifar10
+from functools import partial
 
 
 def bulid_model(layer_widths, y_dim=2, nonlin='relu'):
@@ -82,11 +86,71 @@ def create_dataset(num_train, num_test, x_dim, layer_widths, nonlin, lambd_facto
         px_y_s =tf.transpose(pyx_s) / py.probs[:, None]
         px_y = tfp.distributions.Categorical(probs=tf.cast(px_y_s, tf.float32))
         ixy = tf.reduce_sum(py.probs * tfp.distributions.kl_divergence(px_y, px))
-    A = tf.cast(tf.transpose(A), tf.float32)
-    lambd = tf.cast(tf.transpose(lambd), tf.float32)
+    A = tf.cast(tf.transpose(A), tf.float64)
+    lambd = tf.cast(tf.transpose(lambd), tf.float64)
 
     train_ds = tf.data.Dataset.from_tensor_slices((x_samp, tf.transpose(py_x_samp))).shuffle(buffer_size=1000)
     test_ds = tf.data.Dataset.from_tensor_slices((xt_samp, tf.transpose(py_xt_sampe))).shuffle(buffer_size=1000)
     train_ds = train_ds.batch(train_batch_size).repeat()
     test_ds = test_ds.batch(batch_size).repeat()
     return train_ds, test_ds, py,py_x, x, px, A, lambd, ixy
+
+
+
+
+def mnist_preprocessing(image, label):
+  """Normalizes images: `uint8` -> `float32`."""
+  return tf.cast(image, tf.float32) / 255., label
+
+
+def cifar_preprocessing(x_train, x_test):
+    x_train = x_train.astype('float32')
+    x_test = x_test.astype('float32')
+    mean = [125.3, 123.0, 113.9]
+    std  = [63.0,  62.1,  66.7]
+    for i in range(3):
+        x_train[:,:,:,i] = (x_train[:,:,:,i] - mean[i]) / std[i]
+        x_test[:,:,:,i] = (x_test[:,:,:,i] - mean[i]) / std[i]
+
+    return x_train, x_test
+
+
+def load_cifar_data(num_class = 10, batch_size=128,IMG_ROWS=32, IMG_COLS=32, IMG_CHANNELS=3):
+    (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+    x_train, x_test = cifar_preprocessing(x_train, x_test)
+    ds_test = tf.data.Dataset.from_tensor_slices((x_test, np.reshape(y_test, (-1,))))
+    ds_test = ds_test.batch(batch_size, drop_remainder=True)
+    datagen = ImageDataGenerator(horizontal_flip=True,
+                width_shift_range=0.125,height_shift_range=0.125,fill_mode='reflect')
+    datagen.fit(x_train)
+    part_f = partial(datagen.flow, batch_size=batch_size)
+    ds_train = tf.data.Dataset.from_generator(
+        part_f, args=[x_train, np.reshape(y_train, (-1,))],
+        output_types=(tf.float32, tf.int32),
+        output_shapes=((None, IMG_ROWS, IMG_COLS, IMG_CHANNELS), [None]))
+    step_per_epoch = len(x_train) // batch_size + 1
+    return ds_train, ds_test, step_per_epoch
+
+
+def load_mnist_data(batch_size=128, num_epochs = 25):
+    (ds_train, ds_test), ds_info = tfds.load(
+        'mnist',
+        split=['train', 'test'],
+        shuffle_files=True,
+        as_supervised=True,
+        with_info=True,
+    )
+    # Create Data
+    ds_train = ds_train.map(
+        mnist_preprocessing, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    ds_train = ds_train.cache()
+    ds_train = ds_train.shuffle(ds_info.splits['train'].num_examples)
+    ds_train = ds_train.batch(batch_size, drop_remainder=True)
+    ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE).repeat(num_epochs)
+    ds_test = ds_test.map(
+        mnist_preprocessing, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    ds_test = ds_test.batch(batch_size, drop_remainder=True)
+    ds_test = ds_test.cache()
+    ds_test = ds_test.prefetch(tf.data.experimental.AUTOTUNE)
+    step_per_epoch = ds_info.splits['train'].num_examples//batch_size +1
+    return ds_train, ds_test, step_per_epoch

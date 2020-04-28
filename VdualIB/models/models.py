@@ -3,6 +3,8 @@ import tensorflow as tf
 import tensorflow.keras as keras
 tfkl = tf.keras.layers
 import tensorflow_probability as tfp
+from tensorflow.keras.regularizers import l2
+
 tfd = tfp.distributions
 
 
@@ -10,15 +12,16 @@ class BasePrior(keras.Model):
     def __init__(self, z_dims = 128):
         super(BasePrior, self).__init__()
         self.z_dim = z_dims
+        self.net = tfp.layers.DistributionLambda(lambda t: tfd.MultivariateNormalDiag(loc=3*tf.ones((self.z_dim))))
     def call(self, inputs):
-        return  tfd.MultivariateNormalDiag(loc=tf.zeros((self.z_dim)))
+        return  self.net(0)
 
 class BZYPrior(keras.Model):
     def __init__(self, num_claases=10, z_dims = 128):
         super(BZYPrior, self).__init__()
         self.num_classes = num_claases
         self.z_dims = z_dims
-        self.net = tf.keras.Sequential([tfkl.Dense(self.z_dims, activation=None)])
+        self.net = tf.keras.Sequential([tfkl.InputLayer(input_shape=(self.num_claases,)), tfkl.Dense(self.z_dims, activation=None)])
 
     def call(self, inputs):
         """Builds the backwards distribution, b(z|y)."""
@@ -27,18 +30,23 @@ class BZYPrior(keras.Model):
         dist = tfd.MultivariateNormalDiag(loc=mus)
         return dist
 
+
+def build_default_net(z_dim, h_dim, layer_input_shape, activation ):
+    net = tf.keras.Sequential([tfkl.Flatten(input_shape=layer_input_shape),
+                                    tfkl.Dense(h_dim, activation=activation),
+                                    tfkl.Dense(h_dim, activation=activation),
+                                    tfkl.Dense(2 * z_dim)
+                                    ])
+    return net
 class BasedEncoder(keras.Model):
-    def __init__(self, z_dim=128, h_dim = 1024, activation = 'relu', layer_input_shape =(28, 28, 1)):
+    def __init__(self, z_dim=128, h_dim = 1024, activation = 'relu', layer_input_shape =(28, 28, 1), net=None):
         super(BasedEncoder, self).__init__()
         self.z_dim = z_dim
-        self.h_dim = h_dim
-        self.layer_input_shape=layer_input_shape
-        self.activation=activation
-        self.net  = tf.keras.Sequential([tfkl.Flatten(input_shape=self.layer_input_shape),
-                                         tfkl.Dense(self.h_dim, activation=self.activation),
-                                         tfkl.Dense(self.h_dim, activation=self.activation),
-                                         tfkl.Dense(2*self.z_dim)
-                                         ] )
+        if net:
+            self.net = net
+        else:
+            self.net = build_default_net(z_dim, h_dim, layer_input_shape, activation)
+
 
     def call(self, inputs):
         params = self.net(inputs)
@@ -47,10 +55,13 @@ class BasedEncoder(keras.Model):
         return encoding
 
 class BaseDecoder(keras.Model):
-    def __init__(self, num_of_labels=10):
+    def __init__(self, latent_dim=2048, num_of_labels=10,weight_decay=0.0005 ):
         super(BaseDecoder, self).__init__()
-        self.net =  tf.keras.Sequential(tfkl.Dense(num_of_labels))
-
+        self.weight_decay = weight_decay
+        self.net =  tf.keras.Sequential([tfkl.InputLayer(input_shape=(latent_dim,)),tfkl.Dense(num_of_labels,
+                  kernel_initializer='he_normal',
+                  kernel_regularizer=l2(self.weight_decay),
+                  use_bias=False)])
     def call(self, inputs):
         net = self.net(inputs)
         return net

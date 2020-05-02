@@ -2,11 +2,15 @@ import numpy as np
 import tensorflow as tf
 #from sklearn.metrics import pairwise_distances
 import matplotlib.pyplot as plt
+import tensorflow_probability as tfp
 from tensorflow_addons.losses.metric_learning import pairwise_distance as pairwise_distances
 from estimators.MINE import train_mine
 from estimators.information_utils import calc_information_from_mat
 from sklearn import mixture
 from  tensorflow_probability import distributions as tfd
+
+tfd = tfp.distributions
+
 from network_utils import bulid_model
 from estimators.dual_ib import calc_IXT_p, calc_IYT_p
 import time
@@ -70,24 +74,98 @@ def get_iyt_clustered(py_ts_entropy, py_entropy, pts_prob):
     return ity_linear
 
 
+def get_probs_2(data, py_x, px_probs, py, cov, means):
+    """Calculate probs of x|t, t and y|t based on the data and the meand and the variances of the clusters."""
+    cov = tf.transpose(cov)
+    with tf.device('/CPU:0'):
+        data_i = tf.cast(data, tf.float32)
+        # unique_means = np.unique(means, axis=0)
+        unique_means, unique_indices, unique_inverse, unique_counts = np.unique(means, return_index=True,
+                                                                                return_inverse=True, return_counts=True,
+                                                                                axis=0)
+        pts_probs_i = unique_counts / np.sum(unique_counts)
+        pts_probs_i = np.ones((len(means),)) / len(means)
+        unique_cov = np.unique(cov, axis=0)
+        # unique_pt_x = tfd.MultivariateNormalDiag(loc=tf.cast(unique_means, tf.float32),
+        #                                  scale_diag=tf.cast(unique_cov, tf.float32))
+        qt_x = tfd.MultivariateNormalDiag(loc=tf.cast(means, tf.float32),
+                                          scale_diag=tf.cast(cov, tf.float32))
+        pts = tfp.distributions.MixtureSameFamily(
+            mixture_distribution=tfd.Categorical(
+                probs=pts_probs_i), components_distribution=qt_x)
 
-@tf.function
+        pt_x_prob = qt_x.prob(data_i[:, None, :]) + 1e-100
+        # pt_x_prob = tf.math.divide_no_nan(pt_x_prob, tf.reduce_sum(pt_x_prob, axis=0))
+        # ptx = tf.cast(pt_x_prob, tf.float64) *tf.cast(px_probs, tf.float64)
+        # pts = tf.reduce_sum(ptx, axis=1)
+        # px_t = tf.transpose(tf.math.divide_no_nan(ptx,  pts[:, None]))
+        # todo - check this!
+        # px_t = tf.transpose(px_t)
+        py_t = 0
+        num_of_samples = 10
+        for i in range(num_of_samples):
+
+            for gaussian_index in range(len(unique_means)):
+                ts = pts.sample()
+                p_t_x_sampled = qt_x.prob(ts[None, :]) + 1e-100
+                pts_probs = pts.prob(ts)
+                if np.isinf(pts_probs):
+                    continue
+                mask = tf.math.is_finite(pts_probs)
+                # pts_probs =tf.boolean_mask(pts_probs, mask)
+                # p_t_x_sampled =tf.boolean_mask(p_t_x_sampled, mask)
+                p_x_t = (p_t_x_sampled * tf.cast(pts_probs_i, tf.float32)) / pts_probs
+                p_x_t = tf.transpose(p_x_t)
+                py_t_c = np.nansum(py_x.probs * p_x_t[:, None], axis=0)
+                py_t += np.log(py_t_c)
+        py_t /= num_of_samples
+        pyt = py_t * pts
+        pt_y = tf.transpose(tf.math.divide_no_nan(pyt, tf.cast(py[:, None], tf.float64)))
+    return tf.cast(px_t, tf.float64), tf.cast(pts, tf.float64), py_t, pt_y
+
+
+# @tf.function
 def get_probs(data, py_x, px_probs, py, cov, means):
     """Calculate probs of x|t, t and y|t based on the data and the meand and the variances of the clusters."""
     with tf.device('/CPU:0'):
         data_i = tf.cast(data, tf.float64)
         qt_x = tfd.MultivariateNormalDiag(loc=tf.cast(means, tf.float64),
                                           scale_diag=tf.transpose(cov))
-        pt_x_prob = qt_x.prob(data_i[:, None, :]) +1e-100
-        pt_x_prob = tf.math.divide_no_nan(pt_x_prob, tf.reduce_sum(pt_x_prob, axis=0))
-        ptx = pt_x_prob *px_probs
+        # pts = tfp.distributions.MixtureSameFamily(
+        #    mixture_distribution=tfd.Categorical(
+        #        probs=tf.cast(px_probs, tf.float64)), components_distribution=qt_x)
+
+        pt_x_prob = qt_x.prob(data_i[:, None, :]) + 1e-100
+        # pt_x_prob = tf.math.divide_no_nan(pt_x_prob, tf.reduce_sum(pt_x_prob, axis=0))
+        ptx = tf.cast(pt_x_prob, tf.float64) * tf.cast(px_probs, tf.float64)
+        # pts = tf.reduce_sum(ptx, axis=1)
+        pts_prob = tf.exp(tf.reduce_logsumexp(tf.math.log(pt_x_prob[:, :]), axis=1) - np.log(pt_x_prob.shape[1]))
+        px_t = tf.transpose(tf.math.divide_no_nan(ptx, pts_prob[:, None]))
+        # todo - check this!
+        # px_t = tf.transpose(px_t)
+        py_t = tf.einsum('ki,kj->ij', tf.cast(py_x.probs, tf.float64), tf.cast(px_t, tf.float64))
+        # pyt = py_t*pts.prob(data_i[None,:])
+        # pt_y = tf.transpose(tf.math.divide_no_nan(pyt,  tf.cast(py[:, None], tf.float64)))
+    return tf.cast(px_t, tf.float64), 0, py_t, 0, qt_x.sample(100)
+
+
+# @tf.function
+def get_probs_1(data, py_x, px_probs, py, cov, means):
+    """Calculate probs of x|t, t and y|t based on the data and the meand and the variances of the clusters."""
+    with tf.device('/CPU:0'):
+        data_i = tf.cast(data, tf.float64)
+        qt_x = tfd.MultivariateNormalDiag(loc=tf.cast(means, tf.float64),
+                                          scale_diag=tf.transpose(cov))
+        pt_x_prob = qt_x.prob(data_i[:, None, :]) + 1e-100
+        # pt_x_prob = tf.math.divide_no_nan(pt_x_prob, tf.reduce_sum(pt_x_prob, axis=0))
+        ptx = tf.cast(pt_x_prob, tf.float64) * tf.cast(px_probs, tf.float64)
         pts = tf.reduce_sum(ptx, axis=1)
         px_t = tf.transpose(tf.math.divide_no_nan(ptx,  pts[:, None]))
         #todo - check this!
         #px_t = tf.transpose(px_t)
-        py_t = tf.einsum('ki,kj->ij', py_x, px_t)
-        pyt = py_t*pts
-        pt_y = tf.transpose(tf.math.divide_no_nan(pyt,  py[:, None]))
+        py_t = tf.einsum('ki,kj->ij', tf.cast(py_x.probs, tf.float64), tf.cast(px_t, tf.float64))
+        pyt = py_t * pts
+        pt_y = tf.transpose(tf.math.divide_no_nan(pyt, tf.cast(py[:, None], tf.float64)))
     return tf.cast(px_t, tf.float64) , tf.cast(pts, tf.float64), py_t, pt_y
 
 #@tf.function
@@ -99,11 +177,11 @@ def cluster_data(clustered_data, data, px, py, py_x, max_num = 5000 ):
     #qt_x = tfd.MultivariateNormalDiag(loc=tf.cast(means_ts, tf.float64),
     #                                  scale_diag=tf.transpose(cov))
 
-    px_t, pts_prob,py_t, pt_y  = get_probs(data, py_x, px.probs, py.probs, cov, means_ts)
+    px_t, pts_prob, py_t, pt_y, ts_sampled = get_probs(data, py_x, px.probs, py.probs, cov, means_ts)
     #qyt = tfd.Categorical(probs=tf.transpose(py_t))
     with tf.device('/GPU:0'):
         dist_matrix = pairwise_distances(tf.cast(tf.cast(means_ts, tf.float64), tf.float32))
-    return ent(py_t), px_t , dist_matrix, pts_prob,ts, means_, covariances_, means_ts, covariances_ts
+    return ent(py_t), px_t, dist_matrix, pts_prob, ts, means_, covariances_, means_ts, covariances_ts, ts_sampled
 
 
 #@tf.function(experimental_relax_shapes=True)
@@ -148,37 +226,51 @@ def cluster_mixture(clf, data, train_data):
 #@tf.function
 def get_information_all_layers_clusterd(data_all, train_data_all, clustered_data, num_of_clusters=None,
                                         py_x=None, py=None, px=None, calc_dual=True, A=None,
-                                        lambd=None, clfs=None, targets=None, num_of_epochs_inf_labels=2000):
+                                        lambd=None, clfs=None, targets=None, num_of_epochs_inf_labels=2000,
+                                        betas=[0.5, 1, 2, 4]):
 
     """The information I(X;T) and I(T;Y) after you clustered T to mixture of gaussians"""
-    py_entropy = py.entropy()
-    px_entropy = px.entropy()
+    py_entropy = tf.cast(py.entropy(), tf.float64)
+    px_entropy = tf.cast(px.entropy(), tf.float64)
     size = len(num_of_clusters)*len(num_of_clusters[0])
     inforamtion_arr = tf.TensorArray(tf.float64, size=size)
-    dual_inforamtion_arr = tf.TensorArray(tf.float64, size=size)
+    dual_inforamtion_arr = tf.TensorArray(tf.float64, size=size*len(betas))
     n = data_all[0].shape[0]
     for layer_index , (data, train_data, layer_num_clusters) in enumerate(zip(data_all, train_data_all, num_of_clusters)):
         input_dim_c =data.shape[1]
         for i in tf.range(len(layer_num_clusters)):
             clustered_data_c = cluster_mixture(clfs[layer_index][i], data, data)
             ind = tf.cast(layer_index*len(num_of_clusters[0]), tf.int32)+tf.cast(i, tf.int32)
-            qyt_entropy_c, px_t_c, dist_matrix, pts_prob_c, ts, means, convarinaces, means_ts, covariances_ts = \
-                cluster_data(clustered_data_c, data , px, py, py_x )
-
+            qyt_entropy_c, px_t_c, dist_matrix, pts_prob_c, ts, means, convarinaces, means_ts, covariances_ts, ts_sampled = \
+                cluster_data(clustered_data_c, data, px, py, py_x)
+            # targets_sampled = np.tile(targets,[ts_sampled.shape[0], 1])
+            targets_sampled = tf.reshape(tf.transpose(tf.keras.backend.repeat(targets, ts_sampled.shape[0]), [1, 0, 2]),
+                                         (-1, targets.shape[-1]))
+            ts_sampled = tf.reshape(ts_sampled, (-1, ts_sampled.shape[-1]))
             beta_s = tf.cast(tf.reduce_mean(convarinaces), tf.float64)
             ixt, Ht = get_ixt_clustered(dist_matrix=dist_matrix, input_dim=input_dim_c, n=n, variance=beta_s)
             ity1 = 0
             ity = get_iyt_clustered(py_ts_entropy=qyt_entropy_c, py_entropy=py_entropy,
-                                    pts_prob=pts_prob_c)
-            ity1 = get_iyt_from_top_model(means_ts, targets, py_entropy, num_of_epochs_inf_labels, lr=1e-4,
+                                    pts_prob=tf.cast(px.probs, tf.float64))
+            ity1 = get_iyt_from_top_model(ts_sampled, targets_sampled, py_entropy, num_of_epochs_inf_labels, lr=1e-4,
                                           layers_width=[30, 20, 10])
             #print('______________', ind, ixt, ity1)
             inforamtion_arr = inforamtion_arr.write(ind, tf.cast(tf.stack([ixt, ity, ity1], axis=0), tf.float64))
+            print('CLUSTERS ', ixt, ity, ity1)
             if calc_dual:
-                ixt_dual = calc_IXT_p(pts_prob_c, px_t_c, A, lambd, 1 / beta_s, px_entropy)
-                ity_dual = calc_IYT_p(pts_prob_c, px_t_c, A, lambd, py_entropy)
-                dual_inforamtion_arr = dual_inforamtion_arr.write(ind,
-                                                                  tf.cast(tf.stack([ixt_dual, ity_dual]), tf.float64))
+                ity_dual = calc_IYT_p(tf.cast(px.probs, tf.float64), px_t_c, A, lambd, py_entropy)
+
+                for ii in range(len(betas)):
+                    beta = betas[ii]
+                    ind_dual = tf.cast(layer_index * len(num_of_clusters[0]), tf.int32) + tf.cast(i, tf.int32) * len(
+                        layer_num_clusters) + ii
+
+                    ixt_dual = calc_IXT_p(tf.cast(px.probs, tf.float64), px_t_c, A, lambd, beta, px_entropy)
+
+                    dual_inforamtion_arr = dual_inforamtion_arr.write(ind_dual,
+                                                                      tf.cast(tf.stack([ixt_dual, ity_dual]),
+                                                                              tf.float64))
+                    tf.print(ixt_dual, ity_dual, ind_dual, layer_index, i, ii )
             else:
                 dual_inforamtion_arr = dual_inforamtion_arr.write(ind, tf.cast(tf.stack([0.0, 0.0]), tf.float64))
 

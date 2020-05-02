@@ -26,9 +26,9 @@ from estimators.MINE import information_mine
 from estimators.binning_MI import  get_information_bins_estimators2
 from estimators.dual_ib import beta_func
 FLAGS = flags.FLAGS
-flags.DEFINE_integer('num_of_epochs_inf_labels', 4500, '')
+flags.DEFINE_integer('num_of_epochs_inf_labels', 100, '')
 flags.DEFINE_string('csv_path','data.csv', '')
-flags.DEFINE_integer('max_clusters',1000, 'Maximum number of clusters')
+flags.DEFINE_integer('max_clusters', 100, 'Maximum number of clusters')
 flags.DEFINE_integer('min_clusters', 5, 'Minimum number of clusters')
 flags.DEFINE_integer('num_of_clusters_run', -1, 'Number of diffrenet runs')
 flags.DEFINE_integer('num_of_samples', 1, 'For the NCE estimator')
@@ -38,13 +38,18 @@ flags.DEFINE_multi_float('binsize', [0.001, 0.005, 0.01, 0.02, 0.03, 0.05, 0.07,
 flags.DEFINE_string('run_id', '56337557390340e798847276e3ae81d0', 'The id of the run that you want to load')
 flags.DEFINE_string('experiment_id', '0', 'the experiment_id to load')
 flags.DEFINE_multi_float('noisevar', [1e-2, 1e-1, 5e-1, 1e0, 1e1], '')
+flags.DEFINE_multi_float('dual_betas',
+                         [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7,
+                          1.8, 1.9, 2, 2.1, 2.2, 2.3, 2.4, 2.5, 3, 4], 'betas values for dual ib')
+
+
 flags.DEFINE_float('lr_labels', 5e-4, '')
-flags.DEFINE_integer('num_test', 1000, 'Number of test examples')
+flags.DEFINE_integer('num_test', 100, 'Number of test examples')
 #flags.DEFINE_integer('num_train', 50000, 'Number of test examples')
 flags.DEFINE_integer('mine_epochs', 5 , "The number of epochs for the mine estimator")
 flags.DEFINE_integer('mine_num_samples', 10 , "The number of samples for the mine estimator")
 flags.DEFINE_integer('batch_size_mine', 5000 , "The batch size for the mine estimator")
-flags.DEFINE_multi_enum('information_measures', [ 'MINE'],
+flags.DEFINE_multi_enum('information_measures', ['CLUSTERED', 'DUAL_IB'],
                         ['BINS', 'NONLINEAR', 'MINE', 'CLUSTERED', 'DUAL_IB'], 'Which information measure to calculate')
 
 
@@ -79,7 +84,7 @@ def get_informations(model, py, py_x, xs, A, lambd, px, information_measures =No
         information_clustered, information_dual_ib = get_information_all_layers_clusterd(
             clustered_data = [],clfs=clfs, targets = py_x.probs, num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels,
             data_all =ts_layers, train_data_all=ts_layers, num_of_clusters=num_of_clusters, py_x=py_x, py=py,
-         px=px,  calc_dual='DUAL_IB' in information_measures, A=A, lambd=lambd)
+            px=px, calc_dual='DUAL_IB' in information_measures, A=A, lambd=lambd, betas=FLAGS.dual_betas)
         print('CLUSTERED', time.time() - t)
     return information_bins, linear_information, inf_mine, information_clustered, information_dual_ib, normalized_information_KDE
 
@@ -178,41 +183,43 @@ def main(argv):
         except:
             pass
         strategy = tf.distribute.MirroredStrategy()
-        train_ds, test_ds, py, py_x, xs, px, A, lambd, ixy = create_dataset( int(params['num_train']),
-                                                                       int(FLAGS.num_test),
-                                                                       int(params['x_dim']), layer_widths,
-                                                                       params['nonlin_dataset'],
-                                                                       batch_size=int(FLAGS.num_test),
-                                                                     train_batch_size=int(int(params['num_train'])/2.),
-                                                                       lambd_factor=float(params['lambd']),
-                                                                       alpha=float(params['alpha']))
+        train_ds, test_ds, py, py_x, xs, px, A, lambd, ixy = create_dataset(int(FLAGS.num_test),
+                                                                            int(FLAGS.num_test),
+                                                                            int(params['x_dim']), layer_widths,
+                                                                            params['nonlin_dataset'],
+                                                                            batch_size=int(FLAGS.num_test),
+                                                                            train_batch_size=int(FLAGS.num_test),
+                                                                            lambd_factor=float(params['lambd']),
+                                                                            alpha=float(params['alpha']))
         dirs = glob.glob(model_path)
         #Go over all the directories in the path (epochs)
         dirs.sort(key=ext_key)
-        #dirs = dirs[:3]
+        dirs = dirs[-3:]
         mlflow.log_param('model_path', model_path)
         model = tf.keras.models.load_model(dirs[0])
         matrices = load_matrices2(num_of_layers=num_of_layers, num_of_clusters=num_of_clusters, num_of_epochs=len(dirs),
                                   num_of_bins = len(FLAGS.binsize), num_of_noises=len(FLAGS.noisevar))
         df_list = np.zeros((len(dirs),
                             #bins
-                            2*len(model.layers)* len(FLAGS.binsize)+
+                            2 * len(model.layers) * len(FLAGS.binsize) +
                             #mine
-                            2*len(model.layers)+
+                            2 * len(model.layers) +
                             #nonlinear
-                            2 * len(model.layers)*len(FLAGS.noisevar)+
                             2 * len(model.layers) * len(FLAGS.noisevar) +
-                            #clustered + dual
-                            len(num_of_clusters[0])*5*len(model.layers)+
+                            2 * len(model.layers) * len(FLAGS.noisevar) +
+                            # clustered +
+                            len(num_of_clusters[0]) * 2 * len(model.layers) +
+                            # dual
+                            len(num_of_clusters[0]) * 1 * len(FLAGS.dual_betas) * len(model.layers) +
 
-                           #losses
-                           4) , dtype = np.float64)
+                            # losses
+                            4) , dtype = np.float64)
         def cond(i, *args):
             return i < len(dirs)
         t = time.time()
         models, train_losses, test_losses = get_losses(dirs, test_ds, train_ds)
-        clfs = [[mixture.GaussianMixture(n_components=num_of_clusters[i][j], warm_start=True,verbose=0,
-                                         covariance_type='spherical', max_iter= 105, tol=5e-4, reg_covar=1e-4)
+        clfs = [[mixture.GaussianMixture(n_components=num_of_clusters[i][j], warm_start=True, verbose=0,
+                                         covariance_type='spherical', max_iter=200, tol=1e-4, reg_covar=1e-4)
                  for j in range(len(num_of_clusters[i]))] for
                  i in range(len(num_of_clusters))]
         #path = os.path.join(new_base_line,

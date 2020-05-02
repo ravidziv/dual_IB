@@ -69,6 +69,7 @@ def wide_residual_network(img_input, classes_num, depth, k, weight_decay, includ
     x = BatchNormalization(momentum=0.9, epsilon=1e-5)(x)
     x = Activation('relu')(x)
     x = AveragePooling2D((8, 8))(x)
+    # x = AveragePooling2D((7, 7))(x)
     x = Flatten()(x)
     if include_top:
         x = Dense(classes_num,

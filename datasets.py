@@ -5,7 +5,7 @@ import tensorflow_datasets as tfds
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.datasets import cifar10
 from functools import partial
-
+import matplotlib.pyplot as plt
 
 def bulid_model(layer_widths, y_dim=2, nonlin='relu'):
   model = tf.keras.Sequential()
@@ -100,6 +100,8 @@ def create_dataset(num_train, num_test, x_dim, layer_widths, nonlin, lambd_facto
 
 def mnist_preprocessing(image, label):
   """Normalizes images: `uint8` -> `float32`."""
+  # image = tf.repeat(image, 0)
+  image = tf.repeat(image, 3, 2)
   return tf.cast(image, tf.float32) / 255., label
 
 
@@ -118,18 +120,36 @@ def cifar_preprocessing(x_train, x_test):
 def load_cifar_data(num_class = 10, batch_size=128,IMG_ROWS=32, IMG_COLS=32, IMG_CHANNELS=3):
     (x_train, y_train), (x_test, y_test) = cifar10.load_data()
     x_train, x_test = cifar_preprocessing(x_train, x_test)
+    # x_train = x_train[:batch_size]
+    # y_train = y_train[:batch_size]
+    ds_train = tf.data.Dataset.from_tensor_slices((x_train, np.reshape(y_train, (-1,))))
+    ds_train = ds_train.batch(batch_size, drop_remainder=True)
     ds_test = tf.data.Dataset.from_tensor_slices((x_test, np.reshape(y_test, (-1,))))
     ds_test = ds_test.batch(batch_size, drop_remainder=True)
     datagen = ImageDataGenerator(horizontal_flip=True,
-                width_shift_range=0.125,height_shift_range=0.125,fill_mode='reflect')
-    datagen.fit(x_train)
-    part_f = partial(datagen.flow, batch_size=batch_size)
+                                 width_shift_range=0.125, height_shift_range=0.125, fill_mode='reflect')
+
+    datagen.fit(x_train, augment=True)
+    part_f = partial(datagen.flow, batch_size=batch_size, shuffle=True)
+
     ds_train = tf.data.Dataset.from_generator(
         part_f, args=[x_train, np.reshape(y_train, (-1,))],
         output_types=(tf.float32, tf.int32),
         output_shapes=((None, IMG_ROWS, IMG_COLS, IMG_CHANNELS), [None]))
     step_per_epoch = len(x_train) // batch_size + 1
-    return ds_train, ds_test, step_per_epoch
+    confusion_matrix = np.array([[0.82232, 0.00238, 0.021, 0.00069, 0.00108, 0, 0.00017, 0.00019, 0.1473, 0.00489],
+                                 [0.00233, 0.83419, 0.00009, 0.00011, 0, 0.00001, 0.00002, 0, 0.00946, 0.15379],
+                                 [0.03139, 0.00026, 0.76082, 0.0095, 0.07764, 0.01389, 0.1031, 0.00309, 0.00031, 0],
+                                 [0.00096, 0.0001, 0.00273, 0.69325, 0.00557, 0.28067, 0.01471, 0.00191, 0.00002,
+                                  0.0001],
+                                 [0.00199, 0, 0.03866, 0.00542, 0.83435, 0.01273, 0.02567, 0.08066, 0.00052, 0.00001],
+                                 [0, 0.00004, 0.00391, 0.2498, 0.00531, 0.73191, 0.00477, 0.00423, 0.00001, 0],
+                                 [0.00067, 0.00008, 0.06303, 0.05025, 0.0337, 0.00842, 0.8433, 0, 0.00054, 0],
+                                 [0.00157, 0.00006, 0.00649, 0.00295, 0.13058, 0.02287, 0, 0.83328, 0.00023, 0.00196],
+                                 [0.1288, 0.01668, 0.00029, 0.00002, 0.00164, 0.00006, 0.00027, 0.00017, 0.83385,
+                                  0.01822],
+                                 [0.01007, 0.15107, 0, 0.00015, 0.00001, 0.00001, 0, 0.00048, 0.02549, 0.81273]])
+    return ds_train, ds_test, step_per_epoch, confusion_matrix
 
 
 def load_mnist_data(batch_size=128, num_epochs = 25):

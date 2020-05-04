@@ -39,19 +39,28 @@ class BaseLabelsModel(keras.Model):
 
 
 class BZYPrior(keras.Model):
-    def __init__(self, num_classes=10, z_dims=128):
+    def __init__(self, num_classes=10, h_dims=500, z_dims=128):
         super(BZYPrior, self).__init__()
         self.num_classes = num_classes
         self.z_dims = z_dims
         self.net = tf.keras.Sequential(
-            [tfkl.InputLayer(input_shape=(self.num_classes,)), tfkl.Dense(self.z_dims, activation=None)])
+            [tfkl.InputLayer(input_shape=(self.num_classes,)), tfkl.Dense(h_dims, activation='relu'),
+             tfkl.Dense(2 * self.z_dims, activation=None)])
+
+    # def call(self, inputs):
+    #    """Builds the backwards distribution, b(z|y)."""
+    #    mus =self.net(y_onehot)
+    #    dist = tfd.MultivariateNormalDiag(loc=mus)
+    #    return dist
 
     def call(self, inputs):
-        """Builds the backwards distribution, b(z|y)."""
         y_onehot = tf.one_hot(inputs, self.num_classes)
-        mus =self.net(y_onehot)
-        dist = tfd.MultivariateNormalDiag(loc=mus)
-        return dist
+
+        params = self.net(y_onehot)
+        mu, rho = params[:, :self.z_dims], params[:, self.z_dims:]
+        encoding = tfp.layers.DistributionLambda(
+            lambda t: tfd.MultivariateNormalDiag(loc=t[0], scale_diag=1e-3 + tf.math.softplus(t[1])))([mu, rho])
+        return encoding
 
 
 def build_default_cov_net(layer_input_shape=(32, 32, 3)):
@@ -85,10 +94,10 @@ class BasedEncoder(keras.Model):
 
     def call(self, inputs):
         params = self.net(inputs)
-        mu, rho = params[:, :self.z_dim], params[:, self.z_dim:]
-        encoding = tfp.layers.DistributionLambda(
-            lambda t: tfd.MultivariateNormalDiag(loc=t[0], scale_diag=1e-3 + tf.math.softplus(t[1])))([mu, rho])
-        return encoding
+        # mu, rho = params[:, :self.z_dim], params[:, self.z_dim:]
+        # encoding = tfp.layers.DistributionLambda(
+        #    lambda t: tfd.MultivariateNormalDiag(loc=t[0], scale_diag=1e-3 + tf.math.softplus(t[1])))([mu, rho])
+        return params
 
 class BaseDecoder(keras.Model):
     def __init__(self, latent_dim=2048, h_dim=1000, num_of_labels=10, weight_decay=0.0005 ):

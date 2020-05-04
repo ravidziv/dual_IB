@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import tensorflow_datasets as tfds
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.datasets import cifar10
+import load_cifar10 as cifar10
 from functools import partial
 import matplotlib.pyplot as plt
 
@@ -137,6 +137,7 @@ def load_cifar_data(num_class = 10, batch_size=128,IMG_ROWS=32, IMG_COLS=32, IMG
         output_types=(tf.float32, tf.int32),
         output_shapes=((None, IMG_ROWS, IMG_COLS, IMG_CHANNELS), [None]))
     step_per_epoch = len(x_train) // batch_size + 1
+    steps_per_epoch_validation = len(x_test) // batch_size + 1
     confusion_matrix = np.array([[0.82232, 0.00238, 0.021, 0.00069, 0.00108, 0, 0.00017, 0.00019, 0.1473, 0.00489],
                                  [0.00233, 0.83419, 0.00009, 0.00011, 0, 0.00001, 0.00002, 0, 0.00946, 0.15379],
                                  [0.03139, 0.00026, 0.76082, 0.0095, 0.07764, 0.01389, 0.1031, 0.00309, 0.00031, 0],
@@ -149,7 +150,7 @@ def load_cifar_data(num_class = 10, batch_size=128,IMG_ROWS=32, IMG_COLS=32, IMG
                                  [0.1288, 0.01668, 0.00029, 0.00002, 0.00164, 0.00006, 0.00027, 0.00017, 0.83385,
                                   0.01822],
                                  [0.01007, 0.15107, 0, 0.00015, 0.00001, 0.00001, 0, 0.00048, 0.02549, 0.81273]])
-    return ds_train, ds_test, step_per_epoch, confusion_matrix
+    return ds_train, ds_test, step_per_epoch, steps_per_epoch_validation, confusion_matrix
 
 
 def load_mnist_data(batch_size=128, num_epochs = 25):

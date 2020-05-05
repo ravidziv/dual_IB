@@ -47,9 +47,11 @@ flags.DEFINE_float('weights_decay',0.0005, 'The weights decay training')
 flags.DEFINE_float('labels_noise', 1e0, 'The noise for calculating the kl of the labels in the dual ib')
 flags.DEFINE_integer('depth',28, 'the depth of the wide resent newtork')
 flags.DEFINE_integer('wide',10, 'the wide of the wide resent newtork')
-flags.DEFINE_multi_string('metrices', ['hzy', 'hzx', 'hyz', 'hyhatz', 'ixt', 'izy', 'izyhat', 'total_loss', 'beta'],
+flags.DEFINE_integer('num_of_train', -1, 'The number of train examples for the training, -1 for all')
+flags.DEFINE_multi_string('metrices',
+                          ['hzy', 'hzx', 'hyz', 'hyhatz', 'ixt', 'izy', 'izyhat', 'hyz_noisy', 'total_loss', 'beta'],
                           'The metrices to save')
-
+flags.DEFINE_bool('noisy_learning', True, 'Train ceb/vib models with noisy labels')
 
 @tf.function
 def lerp(global_step, start_step, end_step, start_val, end_val):
@@ -127,14 +129,12 @@ def main(argv):
                                                                      num_epochs=FLAGS.num_of_epochs)
             else:
                 ds_train, ds_test, steps_per_epoch, steps_per_epoch_validation, confusion_matrix = load_cifar_data(
-                    num_class=FLAGS.num_of_labels,
-                                                                                       batch_size=FLAGS.batch_size)
+                    num_class=FLAGS.num_of_labels, batch_size=FLAGS.batch_size, num_of_train=FLAGS.num_of_train)
             # ds_train = strategy.experimental_distribute_dataset(ds_train)
             #ds_test = strategy.experimental_distribute_dataset(ds_test)
-
             # Create encoder, decoder and the model
             if FLAGS.run_model[0] == 'ceb' or FLAGS.run_model[0] == 'vib':
-                loss_func_inner = loss_func_ib
+                loss_func_inner = partial(loss_func_ib, noisy_learning=FLAGS.noisy_learning)
                 if FLAGS.run_model == 'ceb':
                     prior = BZYPrior(z_dims=FLAGS.z_dim)
                 else:
@@ -143,7 +143,6 @@ def main(argv):
                 loss_func_inner = loss_func_dual_ib
                 prior = BZYPrior(z_dims=FLAGS.z_dim)
             labels_dist = BaseLabelsModel(confusion_matrix=confusion_matrix)
-            #prior.build([FLAGS.batch_size,])
             if FLAGS.dataset =='mnist':
                 encoder = BasedEncoder(z_dim=FLAGS.z_dim, h_dim=FLAGS.h_dim, activation=FLAGS.activation,
                                        layer_input_shape=(28, 28, 1))
@@ -170,22 +169,13 @@ def main(argv):
                 if FLAGS.encoder_type == 'FC_net':
                     net = build_default_FC_net(FLAGS.z_dim, 1024, input_shape, 'relu')
                 net = tf.keras.Sequential([net, tfkl.Flatten(), tfkl.Dense(2 * FLAGS.z_dim)])
-
                 encoder = BasedEncoder(z_dim=FLAGS.z_dim, net=net )
-
             decoder = BaseDecoder(latent_dim = FLAGS.z_dim, num_of_labels=FLAGS.num_of_labels)
             metrices_list = ['accuracy']
             for name in FLAGS.metrices:
                 metrices_list.append(tf.keras.metrics.Mean(name))
             log_file_path = mlflow.get_artifact_uri() + '/' + FLAGS.log_file_path
             log_file_path_name = log_file_path + '/data.csv'
-            try:
-                if not os.path.exists(log_file_path):
-                    pathlib.Path(log_file_path).mkdir(parents=True, exist_ok=True)
-                    logger.addHandler(logging.FileHandler(log_file_path))
-
-            except:
-                pass
             model = VariationalNetwork(log_beta=FLAGS.log_beta, labels_dist=labels_dist, encoder=encoder,
                                        decoder=decoder, prior=prior,
                                        loss_func_inner=loss_func_inner, beta_sched=beta_sched,
@@ -201,7 +191,7 @@ def main(argv):
                 # The metrices that we want to store
                 model.compile(optimizer=opt, loss=class_loss_fn, metrics=metrices_list)
                 # For debugging
-                # model.run_eagerly = True
+                model.run_eagerly = True
                 # Train
                 change_lr = tf.keras.callbacks.LearningRateScheduler(scheduler)
                 tb_cb = tf.keras.callbacks.TensorBoard(log_dir=log_file_path, histogram_freq=0)

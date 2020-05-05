@@ -16,14 +16,18 @@ def save_pickle(file_name, list_of_elem):
 
 
 @tf.function
-def loss_func_ib(hyz, hzy, hzx, hyhatz, log_beta):
+def loss_func_ib(hyz, hzy, hzx, hyhatz, hyz_noisy, log_beta, noisy_learning=False):
     info_loss = hzy - hzx
-    total_loss = info_loss + log_beta * hyz
+    if noisy_learning:
+        label_term = hyz_noisy
+    else:
+        label_term = hyz
+    total_loss = info_loss + log_beta * label_term
     return total_loss
 
 
 @tf.function
-def loss_func_dual_ib(hyz, hzy, hzx, hyhatz, log_beta):
+def loss_func_dual_ib(hyz, hzy, hzx, hyhatz, hyz_noisy, log_beta, noisy_learning=False):
     info_loss = hzy - hzx
     total_loss = info_loss + log_beta * hyhatz
     return total_loss
@@ -32,24 +36,28 @@ def loss_func_dual_ib(hyz, hzy, hzx, hyhatz, log_beta):
 def loss_func(labels, labels_dist, logits, z, encoding, prior, log_beta, num_of_labels=10, scale=.1,
               loss_func_inner=None,
               confusion_matrix=None, eps=1e-6, use_logprob_func=True,
-              GLOBAL_BATCH_SIZE=None):
+              GLOBAL_BATCH_SIZE=None, label_smoothing=0.2):
     label_onehot = tf.one_hot(labels, num_of_labels)
     cyz = tfd.Categorical(logits=logits)
-    hyz = -cyz.log_prob(tf.cast(labels, tf.int32))
-    # hyz =tf.keras.losses.CategoricalCrossentropy(from_logits=True, label_smoothing=0.0,  reduction =tf.keras.losses.Reduction.NONE)(y_pred =logits, y_true=label_onehot)
+    if confusion_matrix is None:
+        label_onehot_with_noise = tf.cast(confusion_matrix[labels], tf.float32)
+    else:
+        label_onehot_with_noise = (label_onehot * (1.0 - label_smoothing) + (label_smoothing / num_of_labels))
+    # hyz = -cyz.log_prob(tf.cast(labels, tf.int32))
+    hyz = tf.keras.losses.CategoricalCrossentropy(from_logits=True, label_smoothing=0.0,
+                                                  reduction=tf.keras.losses.Reduction.NONE)(y_pred=logits,
+                                                                                            y_true=label_onehot)
+    hyz_noisy = tf.keras.losses.categorical_crossentropy(from_logits=True, label_smoothing=0.0, y_pred=logits,
+                                                         y_true=label_onehot_with_noise)
+
     if use_logprob_func:
         if labels_dist == None:
             batch_siz_e = scale * tf.cast(tf.ones_like(label_onehot), tf.float32)
-
             labels_dist = tfd.MultivariateNormalDiag(loc=tf.cast(label_onehot, tf.float32),
                                                      scale_diag=batch_siz_e)
         hyhatz = -labels_dist.log_prob(logits)
     else:
-        if confusion_matrix == None:
-            label_onehot_with_noise = tf.cast(confusion_matrix[labels], tf.float32)
-        else:
-            label_onehot_with_noise = tf.where(label_onehot == 1, 0.99, label_onehot)
-            label_onehot_with_noise = tf.where(label_onehot == 0, 0.01, label_onehot_with_noise)
+
         logits_probs = tf.nn.softmax(logits)
         logits_probs = tf.clip_by_value(logits_probs, eps, 1 - eps)
         cliped_y_pref_tf = tf.clip_by_value(label_onehot_with_noise, eps, 1 - eps)
@@ -57,10 +65,10 @@ def loss_func(labels, labels_dist, logits, z, encoding, prior, log_beta, num_of_
             logits_probs * tf.math.log(cliped_y_pref_tf), axis=1)
     hzx = -encoding.log_prob(z)
     hzy = -prior.log_prob(z)
-    total_loss = loss_func_inner(hyz, hzy, hzx, hyhatz, log_beta)
+    total_loss = loss_func_inner(hyz, hzy, hzx, hyhatz, hyz_noisy, log_beta)
     total_loss = tf.where(tf.math.is_nan(total_loss), tf.zeros_like(total_loss), total_loss)
     total_loss = tf.reduce_mean(total_loss)
-    losses = [hzy, hzx, hyz, hyhatz]
+    losses = [hzy, hzx, hyz, hyhatz, hyz_noisy]
     return total_loss, losses
 
 
@@ -80,9 +88,7 @@ class VariationalNetwork(keras.Model):
         self.step = 0
         self.labels_dist = labels_dist
         self.file_name = file_name
-        # list_of_elem = ['step', 'loss', 'mode'].extend(measures_list)
-        # self.df = pd.DataFrame(columns=[list_of_elem])
-        # save_pickle(self.file_name, list_of_elem)
+
 
     def call(self, x):
         params = self.encoder(x)
@@ -96,7 +102,7 @@ class VariationalNetwork(keras.Model):
         return encoding, cyz, z
 
     def write_metrices(self, y, logits, losses, total_loss, beta, num_of_labels=10, step=0, mode=None):
-        hzy, hzx, hyz, hyhatz = losses
+        hzy, hzx, hyz, hyhatz, hyz_noisy = losses
         self.compiled_metrics.update_state(tf.one_hot(y, num_of_labels), logits)
         izy = tf.math.log(tf.cast(num_of_labels, tf.float32)) - hyz
         izyhat = tf.math.log(tf.cast(num_of_labels, tf.float32)) - hyhatz
@@ -125,15 +131,12 @@ class VariationalNetwork(keras.Model):
                     self.metrics[i].update_state(izy)
                 if self.metrics[i].name == 'izyhat':
                     self.metrics[i].update_state(izyhat)
+                if self.metrics[i].name == 'hyz_noisy':
+                    self.metrics[i].update_state(hyz_noisy)
                 if self.metrics[i].name == 'beta':
                     self.metrics[i].update_state(beta)
         self.compiled_loss(
             tf.one_hot(y, num_of_labels), logits)
-        # dic_t = {m.name: m.result() for m in self.metrics}
-        # dic_t['step'] = step
-        # dic_t['mode'] = mode
-        # df.append(dic_t)
-        # df.to_csv(self.file_name)
 
     def test_step(self, data):
         x, y = data
@@ -166,8 +169,7 @@ class VariationalNetwork(keras.Model):
                                            scale=self.labels_noise,
                                            confusion_matrix=self.confusion_matrix, GLOBAL_BATCH_SIZE=0)
         self.write_metrices(y, cyz, losses, total_loss, log_beta, step=self.optimizer.iterations,
-                            mode='train'
-                            )
+                            mode='train')
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
         return {m.name: m.result() for m in self.metrics}

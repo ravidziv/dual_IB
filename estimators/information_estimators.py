@@ -1,13 +1,15 @@
 import numpy as np
 import tensorflow as tf
-#from sklearn.metrics import pairwise_distances
+# from sklearn.metrics import pairwise_distances
 import matplotlib.pyplot as plt
+from sklearn.cluster import MiniBatchKMeans
+
 import tensorflow_probability as tfp
 from tensorflow_addons.losses.metric_learning import pairwise_distance as pairwise_distances
 from estimators.MINE import train_mine
 from estimators.information_utils import calc_information_from_mat
 from sklearn import mixture
-from  tensorflow_probability import distributions as tfd
+from tensorflow_probability import distributions as tfd
 
 tfd = tfp.distributions
 
@@ -215,7 +217,6 @@ def get_information(A, lambd, betas, calc_dual, px_entropy, py_entropy, dists, q
     return inforamtion_arr.stack(), dual_inforamtion_arr.stack()
 
 
-
 def cluster_mixture(clf, data, train_data):
     """Calculates the GMM of the data."""
     clf.fit(train_data)
@@ -223,21 +224,56 @@ def cluster_mixture(clf, data, train_data):
     return clf.means_, clf.covariances_, ts, clf.means_[ts], clf.covariances_[ts]
 
 
-#@tf.function
+# @tf.function
+def get_information_knnc(data_all, train_data_all, num_of_clusters=None, py=None, px=None, clfs=None, targets=None):
+    """The information I(X;T) and I(T;Y) after you clustered T to mixture of gaussians"""
+    # py_entropy = tf.cast(py.entropy(), tf.float64)
+    size = len(num_of_clusters) * len(num_of_clusters[0])
+    inforamtion_arr = tf.TensorArray(tf.float64, size=size)
+    n = data_all[0].shape[0]
+    for layer_index, (data, train_data, layer_num_clusters) in enumerate(
+            zip(data_all, train_data_all, num_of_clusters)):
+        input_dim_c = data.shape[1]
+        for i in tf.range(len(layer_num_clusters)):
+            # clustered_data_c = cluster_mixture(clfs[layer_index][i], data, data)
+            ind = tf.cast(layer_index * len(num_of_clusters[0]), tf.int32) + tf.cast(i, tf.int32)
+            # qyt_entropy_c, px_t_c, dist_matrix, pts_prob_c, ts, means, convarinaces, means_ts, covariances_ts, ts_sampled = \
+            #    cluster_data(clustered_data_c, data, px, py, py_x)
+            clfs[layer_index][i].fit(data, targets)
+            y_pred = clfs[layer_index][i].predict(data)
+            # qyt_entropy_c = tf.losses.binary_crossentropy(y_pred=y_pred, y_true=targets)
+            # targets_sampled = tf.reshape(tf.transpose(tf.keras.backend.repeat(targets, ts_sampled.shape[0]), [1, 0, 2]),
+            #                             (-1, targets.shape[-1]))
+            # ts_sampled = tf.reshape(ts_sampled, (-1, ts_sampled.shape[-1]))
+            # beta_s = tf.cast(tf.reduce_mean(convarinaces), tf.float64)
+            # ixt, Ht = get_ixt_clustered(dist_matrix=dist_matrix, input_dim=input_dim_c, n=n, variance=beta_s)
+            # ity = get_iyt_clustered(py_ts_entropy=qyt_entropy_c, py_entropy=py_entropy,
+            #                        pts_prob=tf.cast(px.probs, tf.float64))
+            y_pred_o = tf.one_hot(y_pred, 10)
+            targets_o = tf.one_hot(targets, 10)
+            ity1 = get_iyt_from_top_model(y_pred_o, targets_o, np.log(10), 1000, lr=1e-4,
+                                          layers_width=[30, 20, 10])
+            # print('______________', ind, ixt, ity1)
+            inforamtion_arr = inforamtion_arr.write(ind, ity1)
+            print('CLUSTERS ', ity1)
+
+    return inforamtion_arr.stack()
+
+
 def get_information_all_layers_clusterd(data_all, train_data_all, clustered_data, num_of_clusters=None,
                                         py_x=None, py=None, px=None, calc_dual=True, A=None,
                                         lambd=None, clfs=None, targets=None, num_of_epochs_inf_labels=2000,
-                                        betas=[0.5, 1, 2, 4]):
-
+                                        betas=None):
     """The information I(X;T) and I(T;Y) after you clustered T to mixture of gaussians"""
     py_entropy = tf.cast(py.entropy(), tf.float64)
     px_entropy = tf.cast(px.entropy(), tf.float64)
-    size = len(num_of_clusters)*len(num_of_clusters[0])
+    size = len(num_of_clusters) * len(num_of_clusters[0])
     inforamtion_arr = tf.TensorArray(tf.float64, size=size)
-    dual_inforamtion_arr = tf.TensorArray(tf.float64, size=size*len(betas))
+    dual_inforamtion_arr = tf.TensorArray(tf.float64, size=size * len(betas))
     n = data_all[0].shape[0]
-    for layer_index , (data, train_data, layer_num_clusters) in enumerate(zip(data_all, train_data_all, num_of_clusters)):
-        input_dim_c =data.shape[1]
+    for layer_index, (data, train_data, layer_num_clusters) in enumerate(
+            zip(data_all, train_data_all, num_of_clusters)):
+        input_dim_c = data.shape[1]
         for i in tf.range(len(layer_num_clusters)):
             clustered_data_c = cluster_mixture(clfs[layer_index][i], data, data)
             ind = tf.cast(layer_index*len(num_of_clusters[0]), tf.int32)+tf.cast(i, tf.int32)
@@ -365,13 +401,15 @@ def get_nonlinear_information(ts, batch_test, entropy_y, num_of_epochs_inf_label
 
 
 def get_iyt_from_top_model(pred, targets, entropy_y, num_of_epochs, lr=1e-3, layers_width=[10, 10], path=None):
-    """Train network to fit logp(y|t)."""
+    """Train network to fit logp(y|t).
+    pred and target are one hot"""
+
     es_callbatck = tf.keras.callbacks.EarlyStopping(
         monitor='loss', min_delta=1e-6, patience=10, verbose=0, mode='auto',
         baseline=None, restore_best_weights=True
     )
     model = bulid_model(pred.shape[1], targets.shape[-1], layers_width=layers_width)
-    #if path is not None:
+    # if path is not None:
     #    model.load_weights(path)
     optimizer = tf.keras.optimizers.Adam(lr)
     loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)

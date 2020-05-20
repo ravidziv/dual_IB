@@ -122,8 +122,8 @@ def load_cifar_data(num_class=10, batch_size=128, IMG_ROWS=32, IMG_COLS=32, IMG_
     x_train, x_test = cifar_preprocessing(x_train, x_test)
     x_train = x_train[:num_of_train]
     y_train = y_train[:num_of_train]
-    ds_train = tf.data.Dataset.from_tensor_slices((x_train, np.reshape(y_train, (-1,))))
-    ds_train = ds_train.batch(batch_size, drop_remainder=True)
+    # ds_train = tf.data.Dataset.from_tensor_slices((x_train, np.reshape(y_train, (-1,))))
+    # ds_train = ds_train.batch(batch_size, drop_remainder=True)
     ds_test = tf.data.Dataset.from_tensor_slices((x_test, np.reshape(y_test, (-1,))))
     ds_test = ds_test.batch(batch_size, drop_remainder=True)
     datagen = ImageDataGenerator(horizontal_flip=True,

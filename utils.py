@@ -1,3 +1,13 @@
+from typing import Any
+
+try:
+    import cdsw
+
+    use_cdsw = True
+except ImportError:
+    use_cdsw = False
+use_cdsw = False
+
 import numpy as np
 import tensorflow as tf
 import pandas as pd
@@ -243,9 +253,10 @@ def save_pickle(file_name, list_of_elem):
 class LoggerTrain(tf.keras.callbacks.Callback):
     """Save loss and accuracy to csv and model checkpoints"""
 
-    def __init__(self, file_name, checkpoint_path):
+    def __init__(self, file_name, checkpoint_path, file_name_2):
         super().__init__()
         print(file_name, checkpoint_path)
+        self.file_name_2 = file_name_2
         self.step_counter = 0
         self.file_name = file_name
         self.checkpoint_path = checkpoint_path
@@ -270,7 +281,16 @@ class LoggerTrain(tf.keras.callbacks.Callback):
             self.df = self.df.append(train_logs, ignore_index=True)
         if val_logs:
             self.df = self.df.append(val_logs, ignore_index=True)
-        self.df.to_csv(self.file_name)
+        try:
+            self.df.to_csv(self.file_name)
+            if use_cdsw:
+                self.df.to_csv(self.file_name_2)
+                cdsw.track_file(self.file_name_2)
+
+        except:
+            if use_cdsw:
+                self.df.to_csv(self.file_name_2)
+                cdsw.track_file(self.file_name_2)
 
     def on_epoch_begin(self, epoch, logs=None):
         pass
@@ -281,7 +301,7 @@ class LoggerTrain(tf.keras.callbacks.Callback):
     def on_epoch_end(self, epoch, logs=None):
         """Runs metrics and histogram summaries at epoch end."""
         self._log_epoch_metrics(epoch, logs)
-        # self.model.save_weights(self.checkpoint_path.format(epoch))
+        self.model.save_weights(self.checkpoint_path.format('_1'))
 
 
 class LoggerHistory(tf.keras.callbacks.Callback):
@@ -355,3 +375,16 @@ def tf_unique_2d(self, x):
     op = tf.gather(x, r_cond_mul4)
 
     return (op)
+
+
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+    def __getstate__(self):
+        return self.__dict__
+
+    def __setstate__(self, d):
+        self.__dict__ = d

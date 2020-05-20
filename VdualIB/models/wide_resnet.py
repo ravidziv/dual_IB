@@ -7,7 +7,6 @@ IN_FILTERS         = 16
 
 
 def wide_residual_network(img_input, classes_num, depth, k, weight_decay, include_top=False):
-    print('Wide-Resnet %dx%d' % (depth, k))
     n_filters = [16, 16 * k, 32 * k, 64 * k]
     n_stack = (depth - 4) // 6
 
@@ -73,7 +72,7 @@ def wide_residual_network(img_input, classes_num, depth, k, weight_decay, includ
     x = Flatten()(x)
     if include_top:
         x = Dense(classes_num,
-                  activation='softmax',
+                  activation='linear',
                   kernel_initializer='he_normal',
                   kernel_regularizer=l2(weight_decay),
                   use_bias=False)(x)

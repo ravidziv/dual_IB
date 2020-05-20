@@ -10,7 +10,7 @@ import pathlib
 from functools import  partial
 import mlflow.tensorflow
 import tensorflow as tf
-#tf.keras.backend.set_floatx('float64')
+# tf.keras.backend.set_floatx('float64')
 from absl import flags
 import time
 import numpy as np
@@ -20,21 +20,29 @@ import matplotlib.pyplot as plt
 import glob
 import pandas as pd
 from datasets import create_dataset
-from utils import  load_matrices2, store_data2, process_list
-from estimators.information_estimators import get_information_all_layers_clusterd, get_nonlinear_information
+from sklearn import neighbors, datasets
+
+from utils import load_matrices2, store_data2, process_list
+from estimators.information_estimators import get_information_all_layers_clusterd, get_nonlinear_information, \
+    get_information_knnc
 from estimators.MINE import information_mine
-from estimators.binning_MI import  get_information_bins_estimators2
+from estimators.binning_MI import get_information_bins_estimators2
 from estimators.dual_ib import beta_func
+
 FLAGS = flags.FLAGS
 flags.DEFINE_integer('num_of_epochs_inf_labels', 100, '')
-flags.DEFINE_string('csv_path','data.csv', '')
-flags.DEFINE_integer('max_clusters', 100, 'Maximum number of clusters')
-flags.DEFINE_integer('min_clusters', 5, 'Minimum number of clusters')
+flags.DEFINE_string('csv_path', 'data.csv', '')
+flags.DEFINE_string('cluster_method', 'kNearestNeighbors',
+                    '[kNearestNeighbors, gmm], how to cluster the centers of the points')
+flags.DEFINE_integer('max_clusters', 400, 'Maximum number of clusters')
+flags.DEFINE_integer('min_clusters', 4, 'Minimum number of clusters')
 flags.DEFINE_integer('num_of_clusters_run', -1, 'Number of diffrenet runs')
 flags.DEFINE_integer('num_of_samples', 1, 'For the NCE estimator')
-flags.DEFINE_multi_float('binsize', [0.001, 0.005, 0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.2, 0.3, 0.6, 1.,1.5, 2, 1.5, 4, 6, 8],  'The size of the bins')
-#Relu
-#flags.DEFINE_string('run_id', '93973014b78f4e7abcbac843d3571161', 'The id of the run that you want to load')
+flags.DEFINE_multi_float('binsize',
+                         [0.001, 0.005, 0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.2, 0.3, 0.6, 1., 1.5, 2, 1.5, 4, 6, 8],
+                         'The size of the bins')
+# Relu
+# flags.DEFINE_string('run_id', '93973014b78f4e7abcbac843d3571161', 'The id of the run that you want to load')
 flags.DEFINE_string('run_id', '56337557390340e798847276e3ae81d0', 'The id of the run that you want to load')
 flags.DEFINE_string('experiment_id', '0', 'the experiment_id to load')
 flags.DEFINE_multi_float('noisevar', [1e-2, 1e-1, 5e-1, 1e0, 1e1], '')
@@ -67,7 +75,6 @@ def get_informations(model, py, py_x, xs, A, lambd, px, information_measures =No
         t = time.time()
 
     if 'NONLINEAR' in information_measures:
-
         linear_information, normalized_information_KDE = get_nonlinear_information(ts_layers, batch_data, py.entropy(), FLAGS.num_of_epochs_inf_labels,
                                                                                    lr_labels = FLAGS.lr_labels, noisevar=FLAGS.noisevar,
                                                                                    py_probs=py.probs, py_x=py_x, px_probs=px.probs,
@@ -75,16 +82,18 @@ def get_informations(model, py, py_x, xs, A, lambd, px, information_measures =No
         print('NONLINEAR', time.time() - t)
         t = time.time()
     if 'MINE' in information_measures:
-        inf_mine = information_mine(px=px, xs=xs, ts_layers = ts_layers, py_x=py_x,
+        inf_mine = information_mine(px=px, xs=xs, ts_layers=ts_layers, py_x=py_x,
                                     ixy=ixy, num_of_samples=FLAGS.mine_num_samples,
                                     batch_size=FLAGS.batch_size_mine, epochs=FLAGS.mine_epochs)
         print('Mine', time.time() - t)
         t = time.time()
     if 'CLUSTERED' in information_measures:
-        information_clustered, information_dual_ib = get_information_all_layers_clusterd(
-            clustered_data = [],clfs=clfs, targets = py_x.probs, num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels,
-            data_all =ts_layers, train_data_all=ts_layers, num_of_clusters=num_of_clusters, py_x=py_x, py=py,
-            px=px, calc_dual='DUAL_IB' in information_measures, A=A, lambd=lambd, betas=FLAGS.dual_betas)
+        get_information_knnc(data_all=ts_layers, train_data_all=ts_layers, num_of_clusters=num_of_clusters, py=py,
+                             px=px, clfs=clfs, targets=py_x.probs)
+        # information_clustered, information_dual_ib = get_information_all_layers_clusterd(
+        #    clustered_data = [],clfs=clfs, targets = py_x.probs, num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels,
+        #    data_all =ts_layers, train_data_all=ts_layers, num_of_clusters=num_of_clusters, py_x=py_x, py=py,
+        #    px=px, calc_dual='DUAL_IB' in information_measures, A=A, lambd=lambd, betas=FLAGS.dual_betas)
         print('CLUSTERED', time.time() - t)
     return information_bins, linear_information, inf_mine, information_clustered, information_dual_ib, normalized_information_KDE
 
@@ -213,21 +222,30 @@ def main(argv):
                             len(num_of_clusters[0]) * 1 * len(FLAGS.dual_betas) * len(model.layers) +
 
                             # losses
-                            4) , dtype = np.float64)
+                            4), dtype=np.float64)
+
         def cond(i, *args):
             return i < len(dirs)
+
         t = time.time()
         models, train_losses, test_losses = get_losses(dirs, test_ds, train_ds)
-        clfs = [[mixture.GaussianMixture(n_components=num_of_clusters[i][j], warm_start=True, verbose=0,
-                                         covariance_type='spherical', max_iter=200, tol=1e-4, reg_covar=1e-4)
-                 for j in range(len(num_of_clusters[i]))] for
-                 i in range(len(num_of_clusters))]
-        #path = os.path.join(new_base_line,
+        if FLAGS.cluster_method == 'kNearestNeighbors':
+            clfs = [[neighbors.KNeighborsClassifier(num_of_clusters[i][j], weights='distance')
+                     for j in range(len(num_of_clusters[i]))] for
+                    i in range(len(num_of_clusters))]
+
+        elif FLAGS.cluster_method == 'gmm':
+            clfs = [[mixture.GaussianMixture(n_components=num_of_clusters[i][j], warm_start=True, verbose=0,
+                                             covariance_type='spherical', max_iter=200, tol=1e-4, reg_covar=1e-4)
+                     for j in range(len(num_of_clusters[i]))] for
+                    i in range(len(num_of_clusters))]
+        # path = os.path.join(new_base_line,
         path = '{}{}'
-        paths = [[path.format(i,j) for j in range(len(FLAGS.noisevar))]for i in range(num_of_layers+1)]
+        paths = [[path.format(i, j) for j in range(len(FLAGS.noisevar))] for i in range(num_of_layers + 1)]
         part_process = partial(proess_step, dirs=dirs,
-                               num_of_clusters=num_of_clusters,clfs=clfs, py= py, py_x = py_x, xs=xs, px=px, A=A,
-                               lambd=lambd, train_losses=train_losses, test_losses=test_losses, models=models, paths=paths,
+                               num_of_clusters=num_of_clusters, clfs=clfs, py=py, py_x=py_x, xs=xs, px=px, A=A,
+                               lambd=lambd, train_losses=train_losses, test_losses=test_losses, models=models,
+                               paths=paths,
                                ixy=ixy
                                )
         _,_, _output_array = tf.while_loop(

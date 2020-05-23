@@ -1,7 +1,6 @@
 """Implement a  family of variational models - ceb, vib and the dual ib """
 try:
     import cdsw
-
     found_cdsw = True
 except ImportError:
     found_cdsw = False
@@ -11,7 +10,6 @@ import os
 import pickle
 import sys
 from os import environ
-
 sys.path.insert(0, "/home/cdsw/")
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
@@ -31,7 +29,7 @@ from VdualIB.models.wide_resnet import wide_residual_network
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input
 from VdualIB.variational_network import loss_func_ib, loss_func_dual_ib, VariationalNetwork, loss_func_combined
-from datasets import load_cifar_data, load_mnist_data
+from datasets import load_cifar_data, load_mnist_data, load_fasion_mnist_data
 
 tfkl = tf.keras.layers
 dfd = tfp.distributions
@@ -47,7 +45,7 @@ flags.DEFINE_integer('batch_size', 128, 'For training')
 flags.DEFINE_integer('num_of_epochs', 10000, 'For training')
 flags.DEFINE_string('activation', 'relu', 'Activation of the encoder layers')
 flags.DEFINE_string('log_file_path', 'w_resnet', 'Where to save the network tensorboard')
-flags.DEFINE_string('dataset', 'cifar', 'Which dataset to load')
+flags.DEFINE_string('dataset', 'cifar', 'Which dataset to load (mnist, fasion_mnist, cifar10)')
 flags.DEFINE_string('encoder_type', 'wide_resnet', 'The encoder of the network - [wide_resnet, efficientNetB0, '
                                                    'covnet, FC]')
 flags.DEFINE_string('opt', 'adam', 'Which learning method to train with')
@@ -57,7 +55,7 @@ flags.DEFINE_multi_enum('run_model', 'dual_ib',
                         'Which model to run')
 flags.DEFINE_float('initial_lr', 1e-4, 'The lr for the train')
 flags.DEFINE_float('momentum', 0.9, 'The momentum of the SGD')
-flags.DEFINE_float('log_beta', 1., 'log_beta value for the loss function')
+flags.DEFINE_float('log_beta', 100., 'log_beta value for the loss function')
 flags.DEFINE_float('gamma', 2., 'gamma value for the loss function')
 
 flags.DEFINE_float('weights_decay', 0.0005, 'The weights decay training')
@@ -75,7 +73,6 @@ flags.DEFINE_multi_string('metrices',
 flags.DEFINE_bool("noisy_learning", True, 'Train ceb/vib models with noisy labels')
 flags.DEFINE_bool("use_logprob_func", False, 'Sample label noise from gaussian or empirical mle')
 flags.DEFINE_string('pre_model_path', '075e92dfd8974f37b8c8ab6f1031f22a', '')
-
 
 def main(argv):
     strategy = tf.distribute.MirroredStrategy()
@@ -114,14 +111,17 @@ def main(argv):
                 f = open(filename, "wb")
                 pickle.dump(dict, f)
                 f.close()
+
             if dict.dataset == 'mnist':
                 ds_train, ds_test, steps_per_epoch = load_mnist_data(batch_size=dict.batch_size,
                                                                      num_epochs=dict.num_of_epochs)
+            elif dict.dataset == 'fasion_mnist':
+                ds_train, ds_test, steps_per_epoch, steps_per_epoch_validation, confusion_matrix = load_fasion_mnist_data(
+                    batch_size=dict.batch_size,
+                    num_epochs=dict.num_of_epochs)
             else:
                 ds_train, ds_test, steps_per_epoch, steps_per_epoch_validation, confusion_matrix = load_cifar_data(
                     num_class=dict.num_of_labels, batch_size=dict.batch_size, num_of_train=dict.num_of_train)
-            # ds_train = strategy.experimental_distribute_dataset(ds_train)
-            # ds_test = strategy.experimental_distribute_dataset(ds_test)
             # Create encoder, decoder and the model
             if dict.run_model[0] == 'ceb' or dict.run_model[0] == 'vib':
                 loss_func_inner = partial(loss_func_ib, noisy_learning=dict.noisy_learning)
@@ -143,9 +143,12 @@ def main(argv):
                 beta_sched = beta_sched_mnist
                 scheduler = scheduler_mnist
             else:
-                input_shape = (32, 32, 3)
+                if dict.dataset == 'fasion_mnist':
+                    input_shape = (28, 28, 3)
+                else:
+                    input_shape = (32, 32, 3)
                 img_input = Input(shape=input_shape)
-                beta_sched = betloss_func_iba_sched_cifar
+                # beta_sched = betloss_func_iba_sched_cifar
                 beta_sched = partial(lerp, start_step=0, end_step=dict.end_anneling, start_val=100,
                                      end_val=dict.log_beta)
                 gamma_sched = partial(lerp, start_step=0, end_step=dict.end_anneling, start_val=100,
@@ -154,7 +157,7 @@ def main(argv):
 
                 if dict.encoder_type == 'wide_resnet':
                     output = wide_residual_network(img_input, dict.num_of_labels, dict.depth, dict.wide,
-                                                   dict.weights_decay)
+                                                   dict.weights_decay, is_cifar=dict.dataset == 'cifar10')
                     net = Model(img_input, output)
                 if dict.encoder_type == 'efficientNetB0':
                     net = tf.keras.applications.EfficientNetB0(
@@ -175,7 +178,8 @@ def main(argv):
             if dict.run_model[0] == 'det_wide_resnet':
                 scheduler = schedule_cifar10_2
                 wide_resnet_output = wide_residual_network(img_input, dict.num_of_labels, dict.depth, dict.wide,
-                                                           dict.weights_decay, include_top=True)
+                                                           dict.weights_decay, include_top=True,
+                                                           is_cifar=dict.dataset == 'cifar10')
                 model = Model(img_input, wide_resnet_output)
                 class_loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
             elif dict.run_model[0] == 'det_covnet':
@@ -202,8 +206,6 @@ def main(argv):
                     pre_model.compile(optimizer=opt1, loss=class_loss_fn1, metrics='acc')
                     pre_model.load_weights(model_path)
                     pre_model.trainable = False
-
-                    print('TTTTT', pre_model.evaluate(ds_train, steps=10))
                 model = VariationalNetwork(log_beta=dict.log_beta, gamma=dict.gamma, labels_dist=labels_dist,
                                            encoder=encoder,
                                            decoder=decoder, prior=prior,
@@ -230,23 +232,21 @@ def main(argv):
                 tb_cb = tf.keras.callbacks.TensorBoard(log_dir=log_file_path, histogram_freq=0)
                 checkpoint_path = mlflow.get_artifact_uri() + "/model/checkpoints/{}_cp"
                 # Save Cehckpoints of the model and csv file
-                file_name_2 = run_id + '_c_looger.csv'
-                history = LoggerTrain(file_name=mlflow.get_artifact_uri() + '/c_looger.csv', file_name_2=file_name_2,
+                # file_name_2 = run_id + '_c_looger.csv'
+
+                history = LoggerTrain(file_name=mlflow.get_artifact_uri() + '/c_looger.csv',
                                       checkpoint_path=checkpoint_path)
                 cbks = [change_lr, tb_cb, history]
                 # print (model.summary())
-
                 model.fit(ds_train, steps_per_epoch=steps_per_epoch, epochs=dict.num_of_epochs, shuffle=False,
                           callbacks=cbks,
                           validation_data=ds_test,
-                          # validation_steps = steps_per_epoch_validation,
+                          validation_steps=steps_per_epoch_validation,
                           batch_size=dict.batch_size,
-                          verbose=2)
+                          verbose=1)
                 if found_cdsw:
                     cdsw.track_file(filename)
-                    cdsw.track_file(file_name_2)
                 model.save(checkpoint_path.format(dict.num_of_epochs))
-                # model.save('checkpoints/{}_cp'.format(dict.num_of_epochs))
 
 
 if __name__ == '__main__':

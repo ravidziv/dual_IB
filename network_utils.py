@@ -11,7 +11,6 @@ def bulid_model(input_shape, y_dim=2, nonlin='tanh', layers_width=[]):
   model.add(tf.keras.layers.Dense(y_dim, activation='softmax'))
   return model
 
-
 def build_covnet():
   model = models.Sequential()
   model.add(layers.Conv2D(32, (3, 3), activation='relu', input_shape=(32, 32, 3)))

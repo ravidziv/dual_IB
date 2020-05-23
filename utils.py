@@ -1,8 +1,6 @@
 from typing import Any
-
 try:
     import cdsw
-
     use_cdsw = True
 except ImportError:
     use_cdsw = False
@@ -253,10 +251,9 @@ def save_pickle(file_name, list_of_elem):
 class LoggerTrain(tf.keras.callbacks.Callback):
     """Save loss and accuracy to csv and model checkpoints"""
 
-    def __init__(self, file_name, checkpoint_path, file_name_2):
+    def __init__(self, file_name, checkpoint_path):
         super().__init__()
         print(file_name, checkpoint_path)
-        self.file_name_2 = file_name_2
         self.step_counter = 0
         self.file_name = file_name
         self.checkpoint_path = checkpoint_path
@@ -281,16 +278,7 @@ class LoggerTrain(tf.keras.callbacks.Callback):
             self.df = self.df.append(train_logs, ignore_index=True)
         if val_logs:
             self.df = self.df.append(val_logs, ignore_index=True)
-        try:
-            self.df.to_csv(self.file_name)
-            if use_cdsw:
-                self.df.to_csv(self.file_name_2)
-                cdsw.track_file(self.file_name_2)
-
-        except:
-            if use_cdsw:
-                self.df.to_csv(self.file_name_2)
-                cdsw.track_file(self.file_name_2)
+        self.df.to_csv(self.file_name)
 
     def on_epoch_begin(self, epoch, logs=None):
         pass
@@ -375,7 +363,6 @@ def tf_unique_2d(self, x):
     op = tf.gather(x, r_cond_mul4)
 
     return (op)
-
 
 class dotdict(dict):
     """dot.notation access to dictionary attributes"""

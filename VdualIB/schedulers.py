@@ -1,10 +1,11 @@
 """Scheduleras file for different training"""
 import tensorflow as tf
 
-
 @tf.function
 def lerp(global_step, start_step, end_step, start_val, end_val):
     """Utility function to linearly interpolate two values."""
+    if end_val > start_val:
+        return end_val
     interp = (tf.cast(global_step - start_step, tf.float32)
               / tf.cast(end_step - start_step, tf.float32))
     interp = tf.maximum(0.0, tf.minimum(1.0, interp))
@@ -15,10 +16,7 @@ def scheduler_mnist(epoch, lr):
     return lr
 
 
-lr_schedule = [60, 120, 160]  # epoch_step
-
-
-def schedule_cifar10_2(epoch_idx):
+def schedule_cifar100(epoch_idx, lr, lr_schedule=[60, 120, 160]):
     if (epoch_idx + 1) < lr_schedule[0]:
         return 0.1
     elif (epoch_idx + 1) < lr_schedule[1]:
@@ -28,12 +26,26 @@ def schedule_cifar10_2(epoch_idx):
     return 0.0008
 
 
+lr_schedule = [60, 120, 160]  # epoch_step
+
+
+def schedule_cifar10_2(epoch_idx, lr):
+    return lr
+    # if (epoch_idx + 1) < lr_schedule[0]:
+    #      return 0.1
+    # elif (epoch_idx + 1) < lr_schedule[1]:
+    #      return 0.02 # lr_decay_ratio = 0.2
+    # elif (epoch_idx + 1) < lr_schedule[2]:
+    #      return 0.004
+    # return 0.w0008
+
+
 def scheduler_cifar(epoch, lr):
-    if epoch == 300:
-        lr = lr * 0.5
-    if epoch == 400:
+    if epoch == 200:
         lr = lr * 0.5
     if epoch == 500:
+        lr = lr * 0.5
+    if epoch == 900:
         lr = lr * 0.5
     tf.summary.scalar('learning rate', data=lr, step=epoch)
     return lr
@@ -57,7 +69,7 @@ def scheduler_cifar_n(epoch, lr):
 def betloss_func_iba_sched_cifar(log_beta, step):
     if step < 4000:
         n_log_beta = tf.maximum(100., log_beta)
-    elif step > 500 and step > 800:
+    elif step > 500 and step < 800:
         n_log_beta = tf.maximum(2., log_beta)
     else:
         n_log_beta = log_beta
@@ -71,3 +83,4 @@ def beta_sched_mnist(log_beta, step):
         return 2
     else:
         return log_beta
+

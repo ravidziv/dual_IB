@@ -32,9 +32,9 @@ class BaseLabelsModel(keras.Model):
         # params = self.net(y_onehot)
         # mu, rho = params[:, :self.num_classes], params[:,self.num_classes:]
 
-        # encoding = tfp.layers.DistributionLambda(lambda t: tfd.MultivariateNormalDiag(loc=t[0], scale_diag= tf.math.softplus(t[1])))([mu, rho])
+        # encoding = tfp.layers.DistributionLambda(lambda t: tfd.MultivariateNormalDiag(loc=t[0], scale_diag= len()*tf.ones((y_onehot.shape))))([y_onehot])
         encoding = tfp.layers.DistributionLambda(lambda t: tfd.MultivariateNormalTriL(loc=t[0], scale_tril=
-        1e-1 * tf.linalg.cholesky(tf.cast(self.confusion_matrix.T, tf.float32))))([y_onehot])
+        1e-6 + 1e-1 * tf.linalg.cholesky(1e-4 + tf.cast(self.confusion_matrix.T, tf.float32))))([y_onehot])
         return encoding
 
 
@@ -59,7 +59,7 @@ class BZYPrior(keras.Model):
         params = self.net(y_onehot)
         mu, rho = params[:, :self.z_dims], params[:, self.z_dims:]
         encoding = tfp.layers.DistributionLambda(
-            lambda t: tfd.MultivariateNormalDiag(loc=t[0], scale_diag=1e-3 + tf.math.softplus(t[1])))([mu, rho])
+            lambda t: tfd.MultivariateNormalDiag(loc=t[0], scale_diag=1e-2 + tf.math.softplus(t[1])))([mu, rho])
         return encoding
 
 

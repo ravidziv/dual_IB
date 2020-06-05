@@ -20,11 +20,8 @@ import matplotlib.pyplot as plt
 import glob
 import pandas as pd
 from datasets import create_dataset
-from sklearn import neighbors, datasets
-
 from utils import load_matrices2, store_data2, process_list
-from estimators.information_estimators import get_information_all_layers_clusterd, get_nonlinear_information, \
-    get_information_knnc
+from estimators.information_estimators import get_information_all_layers_clusterd, get_nonlinear_information
 from estimators.MINE import information_mine
 from estimators.binning_MI import get_information_bins_estimators2
 from estimators.dual_ib import beta_func
@@ -32,10 +29,8 @@ from estimators.dual_ib import beta_func
 FLAGS = flags.FLAGS
 flags.DEFINE_integer('num_of_epochs_inf_labels', 100, '')
 flags.DEFINE_string('csv_path', 'data.csv', '')
-flags.DEFINE_string('cluster_method', 'kNearestNeighbors',
-                    '[kNearestNeighbors, gmm], how to cluster the centers of the points')
-flags.DEFINE_integer('max_clusters', 400, 'Maximum number of clusters')
-flags.DEFINE_integer('min_clusters', 4, 'Minimum number of clusters')
+flags.DEFINE_integer('max_clusters', 100, 'Maximum number of clusters')
+flags.DEFINE_integer('min_clusters', 5, 'Minimum number of clusters')
 flags.DEFINE_integer('num_of_clusters_run', -1, 'Number of diffrenet runs')
 flags.DEFINE_integer('num_of_samples', 1, 'For the NCE estimator')
 flags.DEFINE_multi_float('binsize',
@@ -49,7 +44,6 @@ flags.DEFINE_multi_float('noisevar', [1e-2, 1e-1, 5e-1, 1e0, 1e1], '')
 flags.DEFINE_multi_float('dual_betas',
                          [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7,
                           1.8, 1.9, 2, 2.1, 2.2, 2.3, 2.4, 2.5, 3, 4], 'betas values for dual ib')
-
 
 flags.DEFINE_float('lr_labels', 5e-4, '')
 flags.DEFINE_integer('num_test', 100, 'Number of test examples')
@@ -75,6 +69,7 @@ def get_informations(model, py, py_x, xs, A, lambd, px, information_measures =No
         t = time.time()
 
     if 'NONLINEAR' in information_measures:
+
         linear_information, normalized_information_KDE = get_nonlinear_information(ts_layers, batch_data, py.entropy(), FLAGS.num_of_epochs_inf_labels,
                                                                                    lr_labels = FLAGS.lr_labels, noisevar=FLAGS.noisevar,
                                                                                    py_probs=py.probs, py_x=py_x, px_probs=px.probs,
@@ -88,12 +83,10 @@ def get_informations(model, py, py_x, xs, A, lambd, px, information_measures =No
         print('Mine', time.time() - t)
         t = time.time()
     if 'CLUSTERED' in information_measures:
-        get_information_knnc(data_all=ts_layers, train_data_all=ts_layers, num_of_clusters=num_of_clusters, py=py,
-                             px=px, clfs=clfs, targets=py_x.probs)
-        # information_clustered, information_dual_ib = get_information_all_layers_clusterd(
-        #    clustered_data = [],clfs=clfs, targets = py_x.probs, num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels,
-        #    data_all =ts_layers, train_data_all=ts_layers, num_of_clusters=num_of_clusters, py_x=py_x, py=py,
-        #    px=px, calc_dual='DUAL_IB' in information_measures, A=A, lambd=lambd, betas=FLAGS.dual_betas)
+        information_clustered, information_dual_ib = get_information_all_layers_clusterd(
+            clustered_data=[], clfs=clfs, targets=py_x.probs, num_of_epochs_inf_labels=FLAGS.num_of_epochs_inf_labels,
+            data_all=ts_layers, train_data_all=ts_layers, num_of_clusters=num_of_clusters, py_x=py_x, py=py,
+            px=px, calc_dual='DUAL_IB' in information_measures, A=A, lambd=lambd, betas=FLAGS.dual_betas)
         print('CLUSTERED', time.time() - t)
     return information_bins, linear_information, inf_mine, information_clustered, information_dual_ib, normalized_information_KDE
 
@@ -213,7 +206,7 @@ def main(argv):
                             2 * len(model.layers) * len(FLAGS.binsize) +
                             #mine
                             2 * len(model.layers) +
-                            #nonlinear
+                            # nonlinear
                             2 * len(model.layers) * len(FLAGS.noisevar) +
                             2 * len(model.layers) * len(FLAGS.noisevar) +
                             # clustered +
@@ -229,16 +222,10 @@ def main(argv):
 
         t = time.time()
         models, train_losses, test_losses = get_losses(dirs, test_ds, train_ds)
-        if FLAGS.cluster_method == 'kNearestNeighbors':
-            clfs = [[neighbors.KNeighborsClassifier(num_of_clusters[i][j], weights='distance')
-                     for j in range(len(num_of_clusters[i]))] for
-                    i in range(len(num_of_clusters))]
-
-        elif FLAGS.cluster_method == 'gmm':
-            clfs = [[mixture.GaussianMixture(n_components=num_of_clusters[i][j], warm_start=True, verbose=0,
-                                             covariance_type='spherical', max_iter=200, tol=1e-4, reg_covar=1e-4)
-                     for j in range(len(num_of_clusters[i]))] for
-                    i in range(len(num_of_clusters))]
+        clfs = [[mixture.GaussianMixture(n_components=num_of_clusters[i][j], warm_start=True, verbose=0,
+                                         covariance_type='spherical', max_iter=200, tol=1e-4, reg_covar=1e-4)
+                 for j in range(len(num_of_clusters[i]))] for
+                i in range(len(num_of_clusters))]
         # path = os.path.join(new_base_line,
         path = '{}{}'
         paths = [[path.format(i, j) for j in range(len(FLAGS.noisevar))] for i in range(num_of_layers + 1)]
@@ -248,9 +235,9 @@ def main(argv):
                                paths=paths,
                                ixy=ixy
                                )
-        _,_, _output_array = tf.while_loop(
-            cond, part_process, [0,matrices, df_list],
-            parallel_iterations=100,  swap_memory=True)
+        _, _, _output_array = tf.while_loop(
+            cond, part_process, [0, matrices, df_list],
+            parallel_iterations=100, swap_memory=True)
 
         print ('tttime', time.time()-t)
 

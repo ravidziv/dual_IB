@@ -1,12 +1,12 @@
 
 from tensorflow.keras.layers import BatchNormalization
-from tensorflow.keras.layers import Conv2D, Dense, Input, add, Activation, Flatten, AveragePooling2D
+from tensorflow.keras.layers import Conv2D, Dense, Input, add, Activation, Flatten, AveragePooling2D, Dropout
 from tensorflow.keras.regularizers import l2
 IN_FILTERS         = 16
 
 
-
-def wide_residual_network(img_input, classes_num, depth, k, weight_decay, include_top=False):
+def wide_residual_network(img_input, classes_num, depth, k, weight_decay, include_top=False,
+                          is_cifar=True, with_batchnorm=True):
     n_filters = [16, 16 * k, 32 * k, 64 * k]
     n_stack = (depth - 4) // 6
 
@@ -17,11 +17,12 @@ def wide_residual_network(img_input, classes_num, depth, k, weight_decay, includ
                       use_bias=False)(x)
 
     def bn_relu(x):
-        x = BatchNormalization(momentum=0.9, epsilon=1e-5)(x)
+        if with_batchnorm:
+            x = BatchNormalization(momentum=0.9, epsilon=1e-5)(x)
         x = Activation('relu')(x)
         return x
 
-    def residual_block(x, out_filters, increase=False):
+    def residual_block(x, out_filters, increase=False, dropout_rate=0.3):
         global IN_FILTERS
         stride = (1, 1)
         if increase:
@@ -34,7 +35,7 @@ def wide_residual_network(img_input, classes_num, depth, k, weight_decay, includ
                         kernel_initializer='he_normal',
                         kernel_regularizer=l2(weight_decay),
                         use_bias=False)(o1)
-
+        # conv_1 = Dropout(dropout_rate)(conv_1)
         o2 = bn_relu(conv_1)
 
         conv_2 = Conv2D(out_filters,
@@ -65,10 +66,13 @@ def wide_residual_network(img_input, classes_num, depth, k, weight_decay, includ
     x = wide_residual_layer(x, n_filters[1])
     x = wide_residual_layer(x, n_filters[2], increase=True)
     x = wide_residual_layer(x, n_filters[3], increase=True)
-    x = BatchNormalization(momentum=0.9, epsilon=1e-5)(x)
+    if with_batchnorm:
+        x = BatchNormalization(momentum=0.9, epsilon=1e-5)(x)
     x = Activation('relu')(x)
-    x = AveragePooling2D((8, 8))(x)
-    # x = AveragePooling2D((7, 7))(x)
+    if is_cifar:
+        x = AveragePooling2D((8, 8))(x)
+    else:
+        x = AveragePooling2D((7, 7))(x)
     x = Flatten()(x)
     if include_top:
         x = Dense(classes_num,

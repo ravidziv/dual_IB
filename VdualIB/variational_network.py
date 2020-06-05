@@ -1,7 +1,7 @@
 import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow_probability as tfp
-
+import time
 tfd = tfp.distributions
 import pandas as pd
 from csv import writer
@@ -46,15 +46,14 @@ def loss_func_dual_ib(hyz, hzy, hzx, hyhatz, hyz_noisy, log_beta, gamma, noisy_l
 
 def loss_func(labels, labels_dist, logits, z, encoding, prior, log_beta, num_of_labels=10, scale=.1,
               loss_func_inner=None, gamma=0,
-              confusion_matrix=None, eps=1e-6, use_logprob_func=True,
-              label_smoothing=0.2, label_noise_type='confusion_matrix_noise',
-              labels_noise=0.1, x=None, pre_model=None):
+              confusion_matrix=None, eps=1e-7, use_logprob_func=True,
+              label_smoothing=0.02, label_noise_type='confusion_matrix_noise',
+              labels_noise=0.001, x=None, pre_model=None):
     label_onehot = tf.one_hot(labels, num_of_labels)
     # cyz = tfd.Categorical(logits=logits)
     if label_noise_type == 'confusion_matrix_noise':
-        # tf.print (confusion_matrix.shape,labels.shape )
+        # t = time.time()
         label_onehot_with_noise = tf.cast(tf.gather(confusion_matrix, tf.cast(labels, tf.int32)), tf.float32)
-
         label_onehot_with_noise = tf.clip_by_value(label_onehot_with_noise, eps, 1 - eps)
 
     elif label_noise_type == 'gaussian_noise':
@@ -63,14 +62,12 @@ def loss_func(labels, labels_dist, logits, z, encoding, prior, log_beta, num_of_
         label_onehot_with_noise = label_onehot_with_noise_before / tf.reduce_sum(label_onehot_with_noise_before,
                                                                                  axis=1)[:, None]
         label_onehot_with_noise = tf.clip_by_value(label_onehot_with_noise, eps, 1 - eps)
-        # print (label_onehot_with_noise[0], label_onehot[0])
     elif label_noise_type == 'smooth_noise':
         label_onehot_with_noise = (label_onehot * (1.0 - label_smoothing) + (label_smoothing / num_of_labels))
     elif label_noise_type == 'pre_defined_model':
         label_onehot_with_noise_before = pre_model(x)
         label_onehot_with_noise = tf.math.softmax(label_onehot_with_noise_before)
         label_onehot_with_noise = tf.clip_by_value(label_onehot_with_noise, eps, 1 - eps)
-        # print (label_onehot_with_noise[0], label_onehot_with_noise_before[0], label_onehot[0])
 
     # hyz = -cyz.log_prob(tf.cast(labels, tf.int32))
 
@@ -81,7 +78,6 @@ def loss_func(labels, labels_dist, logits, z, encoding, prior, log_beta, num_of_
                                                          y_true=label_onehot_with_noise)
 
     if use_logprob_func:
-        tf.print('NNNNNNNN')
         if labels_dist == None:
             # batch_siz_e = labels_noise * tf.cast(tf.ones_like(label_onehot), tf.float32)
             labels_dist = tfd.Normal(loc=tf.cast(label_onehot, tf.float32),
@@ -107,11 +103,38 @@ def loss_func(labels, labels_dist, logits, z, encoding, prior, log_beta, num_of_
     return total_loss, losses
 
 
+def create_adversarial_pattern(input_image, input_label, model):
+    with tf.GradientTape() as tape:
+        tape.watch(input_image)
+        encoding, cyz, z = model(input_image)
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            logits=cyz, labels=tf.cast(input_label, tf.int32))
+        loss = tf.reduce_mean(loss)
+        # loss = loss_func(input_label, cyz)
+    # Get the gradients of the loss w.r.t to the input image.
+    gradient = tape.gradient(loss, input_image)
+    # Get the sign of the gradients to create the perturbation
+    signed_grad = tf.sign(gradient)
+
+    return signed_grad
+
+
+def create_adver_multi(x_nat, input_label, model, num_steps=5, step_size=1, epsilon=8):
+    x = x_nat
+    for i in range(num_steps):
+        signed = create_adversarial_pattern(x, input_label, model)
+        x = tf.add(x, step_size * signed)
+        x = tf.clip_by_value(x, x_nat - epsilon, x_nat + epsilon)
+        x = tf.clip_by_value(x, 0, 255)  # ensure valid pixel range
+    return x
+
+
 class VariationalNetwork(keras.Model):
     def __init__(self, log_beta, gamma, labels_dist, encoder, decoder, prior, loss_func_inner,
                  beta_sched, gamma_sched, labels_noise=1e-2,
                  confusion_matrix=None, use_logprob_func=True,
-                 file_name=None, label_noise_type='gaussian_noise', pre_model=None, model_path=None):
+                 file_name=None, label_noise_type='gaussian_noise', pre_model=None, model_path=None,
+                 num_of_labels=10):
         super(VariationalNetwork, self).__init__()
         self.log_beta = log_beta
         self.gamma = gamma
@@ -131,6 +154,7 @@ class VariationalNetwork(keras.Model):
         self.use_logprob_func = use_logprob_func
         self.pre_model = pre_model
         self.model_path = model_path
+        self.num_of_labels = num_of_labels
 
     def call(self, x):
         params = self.encoder(x)
@@ -143,7 +167,12 @@ class VariationalNetwork(keras.Model):
         cyz = self.decoder(z)
         return encoding, cyz, z
 
-    def write_metrices(self, y, logits, losses, total_loss, beta, gamma, num_of_labels=10, step=0, mode=None):
+    def get_pgd_acc(self, x, y):
+        x_adv = create_adver_multi(x, y, self, num_steps=10, step_size=1, epsilon=1e-3)
+        encoding, cyz, z = self(x_adv)
+        return tf.keras.metrics.categorical_accuracy(y, cyz)
+
+    def write_metrices(self, y, logits, losses, adv_acc, total_loss, beta, gamma, num_of_labels=10, step=0, mode=None):
         hzy, hzx, hyz, hyhatz, hyz_noisy = losses
         self.compiled_metrics.update_state(tf.one_hot(y, num_of_labels), logits)
         izy = tf.math.log(tf.cast(num_of_labels, tf.float32)) - hyz
@@ -159,6 +188,8 @@ class VariationalNetwork(keras.Model):
                     acc = self.metrics[i].result
                 if self.metrics[i].name == 'hzy':
                     self.metrics[i].update_state(hzy)
+                if self.metrics[i].name == 'adv_acc':
+                    self.metrics[i].update_state(adv_acc)
                 if self.metrics[i].name == 'hzx':
                     self.metrics[i].update_state(hzx)
                 if self.metrics[i].name == 'hyz':
@@ -197,19 +228,23 @@ class VariationalNetwork(keras.Model):
                                        loss_func_inner=self.loss_func_inner, scale=self.labels_noise,
                                        confusion_matrix=self.confusion_matrix, use_logprob_func=self.use_logprob_func,
                                        label_noise_type=self.label_noise_type, gamma=gamma,
-                                       labels_noise=self.labels_noise, pre_model=self.pre_model, x=x)
+                                       labels_noise=self.labels_noise, pre_model=self.pre_model, x=x,
+                                       num_of_labels=self.num_of_labels)
         z = encoding.mean()
         cyz = self.decoder(z)
-        self.write_metrices(y, cyz, losses, total_loss, log_beta, step=self.optimizer.iterations,
-                            gamma=gamma, mode='test')
+        # adv_ac = self.get_pgd_acc( x, y)
+        adv_ac = 0
+
+        self.write_metrices(y, cyz, losses, adv_ac, total_loss, log_beta, step=self.optimizer.iterations,
+                            gamma=gamma, mode='test', num_of_labels=self.num_of_labels)
         return {m.name: m.result() for m in self.metrics}
 
     def train_step(self, input):
+        t = time.time()
         x, y = input
         # if self.model_path and (self.step % 5) ==0:
         #  self.pre_model.load_weights(self.model_path)
 
-        # print ('sssss', self.pre_model.evaluate(x,y, steps = 5))
         with tf.GradientTape() as tape:
             self.step = self.step + 1
             encoding, cyz, z = self(x)
@@ -223,9 +258,11 @@ class VariationalNetwork(keras.Model):
                                            scale=self.labels_noise, gamma=gamma, use_logprob_func=self.use_logprob_func,
                                            confusion_matrix=self.confusion_matrix,
                                            label_noise_type=self.label_noise_type, labels_noise=self.labels_noise,
-                                           pre_model=self.pre_model, x=x)
-        self.write_metrices(y, cyz, losses, total_loss, log_beta, step=self.optimizer.iterations, gamma=gamma,
-                            mode='train')
+                                           pre_model=self.pre_model, x=x, num_of_labels=self.num_of_labels)
+        # adv_ac = self.get_pgd_acc( x, y)
+        adv_ac = 0
+        self.write_metrices(y, cyz, losses, adv_ac, total_loss, log_beta, step=self.optimizer.iterations, gamma=gamma,
+                            mode='train', num_of_labels=self.num_of_labels)
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
         return {m.name: m.result() for m in self.metrics}

@@ -6,6 +6,7 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import load_cifar10 as cifar10
 from functools import partial
 import matplotlib.pyplot as plt
+import time
 
 
 def bulid_model(layer_widths, y_dim=2, nonlin='relu'):
@@ -128,6 +129,18 @@ def cifar_preprocessing(x_train, x_test):
     return x_train, x_test
 
 
+def cifar100_preprocessing(x_train, x_test):
+    x_train = x_train.astype('float32') / 255
+    x_test = x_test.astype('float32') / 255
+    mean = [0.5071, 0.4867, 0.4408]
+    std = [0.2675, 0.2565, 0.2761]
+    for i in range(3):
+        x_train[:, :, :, i] = (x_train[:, :, :, i] - mean[i]) / std[i]
+        x_test[:, :, :, i] = (x_test[:, :, :, i] - mean[i]) / std[i]
+
+    return x_train, x_test
+
+
 def load_cifar_data(num_class=10, batch_size=128, IMG_ROWS=32, IMG_COLS=32, IMG_CHANNELS=3, num_of_train=-1):
     (x_train, y_train), (x_test, y_test) = cifar10.load_data()
     x_train, x_test = cifar_preprocessing(x_train, x_test)
@@ -136,7 +149,7 @@ def load_cifar_data(num_class=10, batch_size=128, IMG_ROWS=32, IMG_COLS=32, IMG_
     # ds_train = tf.data.Dataset.from_tensor_slices((x_train, np.reshape(y_train, (-1,))))
     # ds_train = ds_train.batch(batch_size, drop_remainder=True)
     ds_test = tf.data.Dataset.from_tensor_slices((x_test, np.reshape(y_test, (-1,))))
-    ds_test = ds_test.batch(batch_size, drop_remainder=True)
+    ds_test = ds_test.batch(batch_size, drop_remainder=True).repeat()
     datagen = ImageDataGenerator(horizontal_flip=True,
                                  width_shift_range=0.125, height_shift_range=0.125, fill_mode='reflect')
 
@@ -162,6 +175,19 @@ def load_cifar_data(num_class=10, batch_size=128, IMG_ROWS=32, IMG_COLS=32, IMG_
                                   0.01822],
                                  [0.01007, 0.15107, 0, 0.00015, 0.00001, 0.00001, 0, 0.00048, 0.02549, 0.81273]])
 
+    confusion_matrix = np.abs(np.array(confusion_matrix)) + 0.18 * np.eye(confusion_matrix.shape[0])
+    confusion_matrix = [[828, 13, 12, 11, 18, 0, 2, 4, 85, 27],
+                        [10, 910, 0, 5, 1, 1, 0, 1, 11, 61],
+                        [47, 1, 708, 64, 88, 14, 63, 4, 8, 3],
+                        [3, 4, 16, 768, 33, 93, 50, 19, 4, 10],
+                        [10, 0, 39, 43, 788, 12, 57, 43, 6, 2],
+                        [2, 0, 10, 137, 29, 777, 8, 33, 0, 4],
+                        [7, 2, 10, 54, 29, 7, 888, 1, 1, 1],
+                        [24, 2, 14, 39, 76, 17, 4, 818, 2, 4],
+                        [27, 13, 0, 7, 3, 0, 3, 0, 933, 14],
+                        [19, 64, 1, 7, 2, 1, 1, 0, 18, 887]]
+    confusion_matrix = np.array(confusion_matrix)
+    confusion_matrix = confusion_matrix.astype(np.float64) / np.sum(confusion_matrix, axis=1)
     return ds_train, ds_test, step_per_epoch, steps_per_epoch_validation, confusion_matrix
 
 
@@ -202,12 +228,15 @@ def load_fasion_mnist_data(batch_size=128, num_epochs=25, num_of_train=-1):
     y_train = y_train[:num_of_train]
     x_train = np.expand_dims(x_train, axis=3)
     x_test = np.expand_dims(x_test, axis=3)
+    x_test = fasion_mnist_preprocessing(x_test)
+
     x_train = fasion_mnist_preprocessing(x_train)
     datagen = ImageDataGenerator(horizontal_flip=True,
                                  width_shift_range=0.125, height_shift_range=0.125, fill_mode='reflect')
 
     datagen.fit(x_train, augment=True)
     part_f = partial(datagen.flow, batch_size=batch_size, shuffle=True)
+    print(x_train.shape, y_train)
 
     ds_train = tf.data.Dataset.from_generator(
         part_f, args=[x_train, np.reshape(y_train, (-1,))],
@@ -226,8 +255,8 @@ def load_fasion_mnist_data(batch_size=128, num_epochs=25, num_of_train=-1):
     # ds_train = ds_train.shuffle(ds_info.splits['train'].num_examples)
     # ds_train = ds_train.batch(batch_size, drop_remainder=True)
     # ds_train = ds_train.prefetch(tf.data.experimental.AUTOTUNE).repeat(num_epochs)
-    ds_test = ds_test.map(
-        mnist_preprocessing, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    # ds_test = ds_test.map(
+    #    mnist_preprocessing, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     ds_test = ds_test.batch(batch_size * 10, drop_remainder=True).repeat()
 
     # ds_test = ds_test.batch(batch_size, drop_remainder=True)
@@ -236,7 +265,7 @@ def load_fasion_mnist_data(batch_size=128, num_epochs=25, num_of_train=-1):
     step_per_epoch = len(x_train) // batch_size + 1
     step_per_epoch = 50
     steps_per_epoch_validation = len(x_test) // batch_size + 1
-    steps_per_epoch_validation = 10
+    steps_per_epoch_validation = min(100, steps_per_epoch_validation)
     confusion_matrix = [[783, 0, 15, 12, 2, 1, 73, 0, 6, 0],
                         [0, 876, 2, 8, 1, 0, 3, 0, 0, 0],
                         [12, 1, 811, 8, 35, 0, 38, 0, 0, 0],
@@ -249,4 +278,38 @@ def load_fasion_mnist_data(batch_size=128, num_epochs=25, num_of_train=-1):
                         [0, 0, 0, 0, 0, 4, 0, 18, 1, 876]]
     confusion_matrix = np.array(confusion_matrix)
     confusion_matrix = confusion_matrix.astype(np.float64) / np.sum(confusion_matrix, axis=1)
+    return ds_train, ds_test, step_per_epoch, steps_per_epoch_validation, confusion_matrix
+
+
+def load_cifar100_data(batch_size=128, num_epochs=200, num_of_train=-1):
+    train, test = tf.keras.datasets.cifar100.load_data()
+    x_train, y_train = train
+    x_test, y_test = test
+    x_train, x_test = cifar100_preprocessing(x_train, x_test)
+
+    x_train = x_train[:num_of_train]
+    y_train = y_train[:num_of_train]
+    datagen = ImageDataGenerator(horizontal_flip=True,
+                                 width_shift_range=0.125, height_shift_range=0.125, fill_mode='reflect')
+
+    datagen.fit(x_train, augment=True)
+    part_f = partial(datagen.flow, batch_size=batch_size, shuffle=True)
+
+    ds_train = tf.data.Dataset.from_generator(
+        part_f, args=[x_train, np.reshape(y_train, (-1,))],
+        output_types=(tf.float32, tf.int32),
+        output_shapes=((None, 32, 32, 3), [None]))
+
+    ds_test = tf.data.Dataset.from_tensor_slices((x_test, np.reshape(y_test, (-1,))))
+
+    # ds_test = ds_test.map(
+    #    mnist_preprocessing, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    ds_test = ds_test.batch(batch_size * 5, drop_remainder=True).repeat()
+    step_per_epoch = len(x_train) // batch_size + 1
+    # step_per_epoch = 2
+    steps_per_epoch_validation = len(x_test) // batch_size + 1
+    # steps_per_epoch_validation = 70
+    confusion_matrix = confusion_matrix = tf.random.normal(shape=(100, 100), mean=np.eye(100), stddev=0.00000001)
+    # confusion_matrix = np.array(confusion_matrix)
+    confusion_matrix = np.abs(confusion_matrix) / np.sum(np.abs(confusion_matrix), axis=1)
     return ds_train, ds_test, step_per_epoch, steps_per_epoch_validation, confusion_matrix

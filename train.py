@@ -7,7 +7,6 @@ except ImportError:
 use_cdsw = False
 
 import os
-import pickle
 import sys
 from os import environ
 sys.path.insert(0, "/home/cdsw/")
@@ -16,13 +15,12 @@ os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 import tensorflow as tf
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import mlflow
-from utils import LoggerTrain, dotdict
+from VdualIB.utils import LoggerTrain, dotdict
 from absl import flags
 from absl import app
 import tensorflow_probability as tfp
 from functools import partial
 # from VdualIB.pgd_t2 import get_adversarial_acc_metric
-from network_utils import build_covnet, build_densnet
 
 from VdualIB.schedulers import *
 from VdualIB.models.models import BasePrior, BaseDecoder, BasedEncoder, BZYPrior, BaseLabelsModel, build_default_FC_net, \
@@ -31,7 +29,7 @@ from VdualIB.models.wide_resnet import wide_residual_network
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input
 from VdualIB.variational_network import loss_func_ib, loss_func_dual_ib, VariationalNetwork, loss_func_combined
-from datasets import load_cifar_data, load_mnist_data, load_fasion_mnist_data, load_cifar100_data
+from VdualIB.datasets import load_cifar_data, load_mnist_data, load_fasion_mnist_data, load_cifar100_data
 
 # from cleverhans.attacks import FastGradientMethod
 # from cleverhans.utils_keras import KerasModelWrapper
@@ -64,7 +62,7 @@ flags.DEFINE_float('log_beta', 10000., 'log_beta value for the loss function')
 flags.DEFINE_float('gamma', 0., 'gamma value for the loss function')
 
 flags.DEFINE_float('weights_decay', 0.0005, 'The weights decay training')
-flags.DEFINE_float('labels_noise', 1e-2, 'The noise for calculating the kl of the labels in the dual ib')
+flags.DEFINE_float('c', 1e-2, 'The noise for calculating the kl of the labels in the dual ib')
 flags.DEFINE_string('label_noise_type', 'confusion_matrix_noise',
                     ['confusion_matrix_noise, gaussian_noise', 'smooth_noise', 'pre_defined_model'])
 flags.DEFINE_integer('depth', 28, 'the depth of the wide resent newtork')

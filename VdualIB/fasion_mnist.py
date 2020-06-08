@@ -19,14 +19,10 @@ from __future__ import division
 from __future__ import print_function
 
 import gzip
-import os
-
 import numpy as np
-
+import os
 # from data_utils import get_file
 from tensorflow.python.keras.utils.data_utils import get_file
-
-from tensorflow.python.util.tf_export import keras_export
 
 
 def load_data():

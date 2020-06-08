@@ -3,7 +3,6 @@ import tensorflow.keras as keras
 import tensorflow_probability as tfp
 import time
 tfd = tfp.distributions
-import pandas as pd
 from csv import writer
 
 

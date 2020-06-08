@@ -1,14 +1,6 @@
-from typing import Any
-try:
-    import cdsw
-    use_cdsw = True
-except ImportError:
-    use_cdsw = False
-use_cdsw = False
-
 import numpy as np
-import tensorflow as tf
 import pandas as pd
+import tensorflow as tf
 from csv import writer
 
 

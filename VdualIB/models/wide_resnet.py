@@ -1,12 +1,15 @@
-
 from tensorflow.keras.layers import BatchNormalization
-from tensorflow.keras.layers import Conv2D, Dense, Input, add, Activation, Flatten, AveragePooling2D, Dropout
+from tensorflow.keras.layers import Conv2D, Dense, Input, add, Activation, Flatten, AveragePooling2D
+from tensorflow.keras.models import Model
 from tensorflow.keras.regularizers import l2
-IN_FILTERS         = 16
+
+IN_FILTERS = 16
 
 
-def wide_residual_network(img_input, classes_num, depth, k, weight_decay, include_top=False,
+def wide_residual_network(input_shape, classes_num, depth, k, weight_decay, include_top=False,
                           is_cifar=True, with_batchnorm=True):
+    img_input = Input(shape=input_shape)
+
     n_filters = [16, 16 * k, 32 * k, 64 * k]
     n_stack = (depth - 4) // 6
 
@@ -80,4 +83,5 @@ def wide_residual_network(img_input, classes_num, depth, k, weight_decay, includ
                   kernel_initializer='he_normal',
                   kernel_regularizer=l2(weight_decay),
                   use_bias=False)(x)
-    return x
+    model = Model(img_input, x)
+    return model

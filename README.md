@@ -1,10 +1,8 @@
 # dual_IB
-This repository contains the implementation of the dual information bottleneck framework.
-In the dual ib, we replace the distortion of the IB with the reverse one.
-
 This git contains the variational implementation of the dual IB.
+ https://128.84.21.199/abs/2006.04641ץ
+
 You need to specify three types of networks: the encoder (Wide ResNet, or simple covnet), the decoder (one softmax layer as a mean Gaussian in our case), and the reverse decoder.
 
-The trai.py is the main file for training with different networks and objectives
-For training with VdualIB run train.py file with run_model=dual_ib parameter. 
-
+The notebook [VdualIB_MNIST](VdualIB_MNIST.ipynb) contains an example how to run VdualIB network vs [CEB](https://arxiv.org/abs/2002.05380) network on MNIST dataset with simple encoder, decoder and reverese decoder.
+For more extensive training, you can find the file [train](train.py). In this file, you can train with different networks, objectives and datasets.

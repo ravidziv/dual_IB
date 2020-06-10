@@ -1,5 +1,6 @@
-# dual_IB
-This git contains the variational implementation of the dual IB.
+# The Dual Information Bottleneck
+
+This git contains the variational implementation of the dual Information Bottleneck.
  https://128.84.21.199/abs/2006.04641
  
 You need to specify three types of networks: the encoder (Wide ResNet, or simple covnet), the decoder (one softmax layer as a mean Gaussian in our case), and the reverse decoder.
